@@ -1,10 +1,10 @@
 import { Button, Card, EmptyState, ListRow, LoadingState, ScreenContainer } from "@/components/ui";
-import { useActiveTrainingBlockQuery } from "@/features/training-blocks/queries/useActiveTrainingBlockQuery";
+import { useTodaySessionQuery } from "@/features/training-blocks/queries/useTodaySessionQuery";
 
 const TodayScreen = () => {
-  const activeTrainingBlockQuery = useActiveTrainingBlockQuery();
+  const todaySessionQuery = useTodaySessionQuery();
 
-  if (activeTrainingBlockQuery.isLoading) {
+  if (todaySessionQuery.isLoading) {
     return (
       <ScreenContainer
         eyebrow="Daily Focus"
@@ -21,8 +21,7 @@ const TodayScreen = () => {
     );
   }
 
-  const activePlan = activeTrainingBlockQuery.data;
-  const nextSession = activePlan?.sessions[0];
+  const todaySession = todaySessionQuery.data;
 
   return (
     <ScreenContainer
@@ -30,29 +29,36 @@ const TodayScreen = () => {
       title="Today"
       description="Session execution, readiness prompts, and the next prescribed work will land here."
     >
-      {activePlan === null || activePlan === undefined ? (
+      {todaySession === undefined || todaySession.state !== "ready" ? (
         <Card>
           <EmptyState
-            title="No active block yet"
-            description="Generate a block from saved benchmarks on the Blocks tab to populate the Today flow."
+            title={
+              todaySession?.state === "no-session-scheduled"
+                ? "No scheduled session"
+                : "No active block yet"
+            }
+            description={
+              todaySession?.message ??
+              "Generate a block from saved benchmarks on the Blocks tab to populate the Today flow."
+            }
           />
         </Card>
       ) : (
         <Card>
           <ListRow
             title="Active block"
-            description={activePlan.block.name}
-            trailing={`${activePlan.sessions.length} sessions`}
+            description={todaySession.activeBlockName}
+            trailing={todaySession.activeBlockGoal}
           />
           <ListRow
             title="Next session"
-            description={nextSession?.title ?? "No session is scheduled yet."}
-            trailing={nextSession?.scheduledDate ?? "Pending"}
+            description={todaySession.sessionTitle}
+            trailing={todaySession.scheduledDate}
           />
           <ListRow
-            title="Plan basis"
-            description="Generated locally from the saved benchmark set."
-            trailing={activePlan.block.goalSlug}
+            title="Session details"
+            description={`${todaySession.exerciseCount} exercises across ${todaySession.plannedSetCount} planned sets.`}
+            trailing={`#${todaySession.sessionIndex}`}
           />
           <Button label="Start planned session" />
         </Card>

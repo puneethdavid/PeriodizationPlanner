@@ -8,4 +8,8 @@ export const queryKeys = {
     benchmarks: () => ["training-blocks", "benchmarks"] as const,
     activePlan: () => ["training-blocks", "active-plan"] as const,
   },
+  today: {
+    all: ["today"] as const,
+    activeSession: () => ["today", "active-session"] as const,
+  },
 } as const;
