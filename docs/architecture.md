@@ -81,5 +81,6 @@ src/features/training-blocks/
 - `src/database/` SQLite bootstrap, migrations, and repository foundations
 - `src/providers/` app-wide framework composition
 - `src/theme/` shared theme tokens
+- `docs/training-schema-plan.md` first-pass entity and relationship plan for training persistence
 
 As the app grows, new work should prefer adding feature folders under `src/features/` instead of expanding route files into monoliths.
