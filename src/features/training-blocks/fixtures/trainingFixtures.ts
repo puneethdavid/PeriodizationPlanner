@@ -1,4 +1,8 @@
-import type { BenchmarkInput } from "@/features/training-blocks/schema/trainingBlockSchemas";
+import type {
+  BenchmarkInput,
+  GeneratedTrainingPlan,
+} from "@/features/training-blocks/schema/trainingBlockSchemas";
+import { generateFixedTrainingBlock } from "@/features/training-blocks/services/fixedBlockGenerator";
 
 export const starterBenchmarkFixture: readonly BenchmarkInput[] = [
   {
@@ -45,3 +49,14 @@ export const trainingFixtureStrategy = {
     "Persist the generated block, revision, sessions, exercises, and sets in one transaction.",
   ],
 } as const;
+
+export const createStarterTrainingPlanFixture = (
+  startDate = "2026-04-13",
+): GeneratedTrainingPlan => {
+  return generateFixedTrainingBlock(starterBenchmarkFixture, {
+    startDate,
+    blockName: "Starter Strength Block",
+    goalSlug: "general-strength",
+    primaryLiftSlug: "back-squat",
+  });
+};

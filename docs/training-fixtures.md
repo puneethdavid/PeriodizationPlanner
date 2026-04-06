@@ -27,3 +27,9 @@ This note defines the lightweight fixture path for the Phase 2 training-block en
 
 The current starter fixtures live in `src/features/training-blocks/fixtures/trainingFixtures.ts`.
 Future dev-only seed commands should reuse that module instead of hardcoding separate example values in screens or route files.
+
+## Current Dev Seed Path
+
+- Use `DevTrainingSeedService.seedStarterTrainingDataAsync()` to reset local training data, insert the starter benchmark fixture set, and create one active deterministic training block.
+- Use `DevTrainingSeedService.resetTrainingDataAsync()` when a screen or manual test needs a clean local training state.
+- Both helpers are explicitly guarded behind `__DEV__` so production runtime does not depend on fixture workflows.

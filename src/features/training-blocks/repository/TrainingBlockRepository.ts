@@ -209,6 +209,25 @@ export class TrainingBlockRepository extends BaseRepository {
     super(context);
   }
 
+  async resetTrainingBlockDataAsync(): Promise<void> {
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.execAsync(`
+        DELETE FROM explanation_records;
+        DELETE FROM adaptation_events;
+        DELETE FROM logged_set_results;
+        DELETE FROM workout_results;
+        DELETE FROM planned_sets;
+        DELETE FROM planned_exercises;
+        DELETE FROM planned_sessions;
+        DELETE FROM block_revisions;
+        DELETE FROM training_blocks;
+        DELETE FROM benchmark_snapshot_items;
+        DELETE FROM benchmark_snapshots;
+        DELETE FROM benchmarks;
+      `);
+    });
+  }
+
   private async persistGeneratedTrainingPlanWithDatabaseAsync(
     database: SQLiteDatabase,
     plan: GeneratedTrainingPlan,
