@@ -50,6 +50,13 @@ Current local variables:
 - Keep mutation side effects explicit: write through a repository, then invalidate the affected local query keys.
 - Reference `docs/query-conventions.md` when adding new query hooks.
 
+## Schemas
+
+- Use Zod for unknown or external inputs at app boundaries.
+- Put shared schemas in `src/schema/` and feature-specific schemas in `src/features/<feature>/schema/`.
+- Parse raw inputs once, then pass validated values into repositories or domain services.
+- Reference `docs/schema-conventions.md` before adding new validation modules.
+
 ## Style
 
 - Follow ESLint and Prettier as the source of truth for formatting and baseline code quality.
