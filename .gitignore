@@ -3,4 +3,7 @@ node_modules/
 .expo-shared/
 dist/
 coverage/
+.env
+.env.local
+.env.*.local
 *.log

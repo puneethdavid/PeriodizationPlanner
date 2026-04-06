@@ -12,6 +12,19 @@ Run these before handing work off:
 
 Use `npm run format` or `npm run lint:fix` when you want automatic cleanup.
 
+## Environment Setup
+
+1. Copy `.env.example` to `.env`.
+2. Keep runtime values in `EXPO_PUBLIC_*` variables only.
+3. Read runtime config through `src/config/runtimeConfig.ts` rather than touching `process.env` in feature code.
+
+Current local variables:
+
+- `EXPO_PUBLIC_APP_ENV` required, one of `development`, `preview`, or `production`
+- `EXPO_PUBLIC_SUPABASE_URL` optional placeholder for future sync work
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY` optional placeholder for future sync work
+- `EXPO_PUBLIC_NOTIFICATIONS_PROJECT_ID` optional placeholder for future notifications work
+
 ## TypeScript
 
 - Keep `strict` mode enabled.
