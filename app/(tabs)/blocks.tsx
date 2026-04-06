@@ -1,31 +1,22 @@
-import { useState } from "react";
+import { Text } from "react-native";
 
-import { Button, Card, NumberField, ScreenContainer, TextField } from "@/components/ui";
+import { Card, ScreenContainer } from "@/components/ui";
+import { BenchmarkEntryCard } from "@/features/training-blocks/ui/BenchmarkEntryCard";
+import { appTheme } from "@/theme/appTheme";
 
 const BlocksScreen = () => {
-  const [blockName, setBlockName] = useState("Strength base");
-  const [weeks, setWeeks] = useState("4");
-
   return (
     <ScreenContainer
       eyebrow="Planning"
       title="Blocks"
-      description="Training blocks, phase structure, and progression controls will expand from this route."
+      description="Capture starting benchmarks first, then generate and review the local training block from those saved values."
     >
+      <BenchmarkEntryCard />
       <Card>
-        <TextField
-          helperText="Example shared text input for block naming and future plan setup."
-          label="Block name"
-          onChangeText={setBlockName}
-          value={blockName}
-        />
-        <NumberField
-          helperText="Example numeric input for cycle length, targets, or session counts."
-          label="Weeks"
-          onChangeText={setWeeks}
-          value={weeks}
-        />
-        <Button label="Save draft block" variant="secondary" />
+        <Text style={{ color: appTheme.colors.textSecondary, lineHeight: 22 }}>
+          The next step will use these saved benchmarks to generate one active local training
+          block.
+        </Text>
       </Card>
     </ScreenContainer>
   );
