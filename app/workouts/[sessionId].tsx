@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, EmptyState, ListRow, LoadingState, ScreenContainer } from "@/components/ui";
 import { usePlannedSessionDetailQuery } from "@/features/training-blocks/queries/usePlannedSessionDetailQuery";
+import { useQuickCompleteSessionMutation } from "@/features/training-blocks/queries/useQuickCompleteSessionMutation";
 import { appTheme } from "@/theme/appTheme";
 
 const WorkoutDetailScreen = () => {
@@ -10,6 +11,7 @@ const WorkoutDetailScreen = () => {
   const params = useLocalSearchParams<{ sessionId?: string }>();
   const sessionId = typeof params.sessionId === "string" ? params.sessionId : null;
   const plannedSessionQuery = usePlannedSessionDetailQuery(sessionId);
+  const quickCompleteSessionMutation = useQuickCompleteSessionMutation(sessionId);
 
   if (plannedSessionQuery.isLoading) {
     return (
@@ -111,9 +113,29 @@ const WorkoutDetailScreen = () => {
       ))}
 
       <Card>
+        {quickCompleteSessionMutation.isError ? (
+          <Text style={styles.errorText}>
+            {quickCompleteSessionMutation.error instanceof Error
+              ? quickCompleteSessionMutation.error.message
+              : "Quick completion failed. Try again from this session screen."}
+          </Text>
+        ) : null}
         <Button
           disabled={isCompleted}
-          label={isCompleted ? "Session already completed" : "Quick complete session"}
+          label={
+            isCompleted
+              ? "Session already completed"
+              : quickCompleteSessionMutation.isPending
+                ? "Saving completion..."
+                : "Quick complete session"
+          }
+          onPress={() => {
+            if (isCompleted) {
+              return;
+            }
+
+            void quickCompleteSessionMutation.mutateAsync();
+          }}
           variant={isCompleted ? "secondary" : "primary"}
         />
         <Button label="Enter adjusted results" variant="secondary" />
@@ -177,5 +199,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: appTheme.colors.textSecondary,
     textTransform: "capitalize",
+  },
+  errorText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: appTheme.colors.danger,
   },
 });

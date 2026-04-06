@@ -778,4 +778,76 @@ export class TrainingBlockRepository extends BaseRepository {
 
     return mapPlannedSessionRow(sessionRow, plannedExercises);
   }
+
+  async completeSessionAsPlannedAsync(sessionId: string): Promise<void> {
+    const session = await this.getPlannedSessionDetailAsync(sessionId);
+
+    if (session === null) {
+      throw new Error(`[training-blocks] Planned session ${sessionId} was not found.`);
+    }
+
+    if (session.status === "completed") {
+      return;
+    }
+
+    const completedAt = new Date().toISOString();
+    const workoutResultId = makeId("workout_result");
+
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.runAsync(
+        `
+          UPDATE planned_sessions
+          SET status = 'completed'
+          WHERE id = ?
+        `,
+        sessionId,
+      );
+
+      await transaction.runAsync(
+        `
+          INSERT OR REPLACE INTO workout_results (
+            id,
+            session_id,
+            completed_at,
+            completion_status,
+            notes,
+            perceived_difficulty
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        workoutResultId,
+        sessionId,
+        completedAt,
+        "completed",
+        "Completed as planned through the quick completion flow.",
+        null,
+      );
+
+      for (const exercise of session.plannedExercises) {
+        for (const plannedSet of exercise.plannedSets) {
+          await transaction.runAsync(
+            `
+              INSERT OR REPLACE INTO logged_set_results (
+                id,
+                workout_result_id,
+                planned_set_id,
+                set_index,
+                actual_reps,
+                actual_load,
+                actual_rpe,
+                is_completed
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            makeId("logged_set_result"),
+            workoutResultId,
+            plannedSet.id,
+            plannedSet.setIndex,
+            plannedSet.targetReps,
+            plannedSet.targetLoad,
+            plannedSet.targetRpe,
+            1,
+          );
+        }
+      }
+    });
+  }
 }
