@@ -48,3 +48,4 @@ Current local variables:
 - Follow ESLint and Prettier as the source of truth for formatting and baseline code quality.
 - Prefer small, typed modules with clear names over large utility files.
 - Make the simplest change that preserves readability for the next agent.
+- Reference `docs/architecture.md` before adding new feature modules or cross-cutting infrastructure.
