@@ -95,7 +95,14 @@ type PlannedSetRow = {
   is_amrap: number;
 };
 
-const makeId = (prefix: string): string => `${prefix}_${crypto.randomUUID()}`;
+const makeId = (prefix: string): string => {
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.floor(Math.random() * 1_000_000_000)
+    .toString(36)
+    .padStart(6, "0");
+
+  return `${prefix}_${timestamp}_${randomPart}`;
+};
 
 const mapBenchmarkRow = (row: BenchmarkRow): Benchmark =>
   parseWithSchema(
