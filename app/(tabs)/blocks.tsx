@@ -2,6 +2,7 @@ import { Text } from "react-native";
 
 import { Card, ScreenContainer } from "@/components/ui";
 import { BenchmarkEntryCard } from "@/features/training-blocks/ui/BenchmarkEntryCard";
+import { BlockGenerationCard } from "@/features/training-blocks/ui/BlockGenerationCard";
 import { appTheme } from "@/theme/appTheme";
 
 const BlocksScreen = () => {
@@ -12,10 +13,11 @@ const BlocksScreen = () => {
       description="Capture starting benchmarks first, then generate and review the local training block from those saved values."
     >
       <BenchmarkEntryCard />
+      <BlockGenerationCard />
       <Card>
         <Text style={{ color: appTheme.colors.textSecondary, lineHeight: 22 }}>
-          The next step will use these saved benchmarks to generate one active local training
-          block.
+          The active block is created locally from the saved benchmark set and then handed off to
+          the Today route for execution.
         </Text>
       </Card>
     </ScreenContainer>
