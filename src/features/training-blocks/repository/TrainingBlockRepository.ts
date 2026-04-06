@@ -706,4 +706,76 @@ export class TrainingBlockRepository extends BaseRepository {
       "training-blocks.active-plan",
     );
   }
+
+  async getPlannedSessionDetailAsync(sessionId: string): Promise<PlannedSession | null> {
+    const sessionRow = await this.database.getFirstAsync<PlannedSessionRow>(
+      `
+        SELECT
+          id,
+          block_id,
+          block_revision_id,
+          scheduled_date,
+          session_index,
+          week_index,
+          session_type,
+          title,
+          status
+        FROM planned_sessions
+        WHERE id = ?
+        LIMIT 1
+      `,
+      sessionId,
+    );
+
+    if (sessionRow === null) {
+      return null;
+    }
+
+    const exerciseRows = await this.database.getAllAsync<PlannedExerciseRow>(
+      `
+        SELECT
+          id,
+          session_id,
+          lift_slug,
+          exercise_slug,
+          exercise_name,
+          exercise_order,
+          prescription_kind
+        FROM planned_exercises
+        WHERE session_id = ?
+        ORDER BY exercise_order ASC
+      `,
+      sessionId,
+    );
+
+    const plannedExercises = await Promise.all(
+      exerciseRows.map(async (exerciseRow) => {
+        const plannedSetRows = await this.database.getAllAsync<PlannedSetRow>(
+          `
+            SELECT
+              id,
+              planned_exercise_id,
+              set_index,
+              target_reps,
+              target_load,
+              target_rpe,
+              rest_seconds,
+              tempo,
+              is_amrap
+            FROM planned_sets
+            WHERE planned_exercise_id = ?
+            ORDER BY set_index ASC
+          `,
+          exerciseRow.id,
+        );
+
+        return mapPlannedExerciseRow(
+          exerciseRow,
+          plannedSetRows.map((plannedSetRow) => mapPlannedSetRow(plannedSetRow)),
+        );
+      }),
+    );
+
+    return mapPlannedSessionRow(sessionRow, plannedExercises);
+  }
 }

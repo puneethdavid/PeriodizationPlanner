@@ -12,4 +12,8 @@ export const queryKeys = {
     all: ["today"] as const,
     activeSession: () => ["today", "active-session"] as const,
   },
+  workouts: {
+    all: ["workouts"] as const,
+    detail: (sessionId: string) => ["workouts", "detail", sessionId] as const,
+  },
 } as const;
