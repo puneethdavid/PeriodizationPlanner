@@ -1,9 +1,19 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { Button, Card, EmptyState, ListRow, LoadingState, ScreenContainer } from "@/components/ui";
+import {
+  Button,
+  Card,
+  EmptyState,
+  ListRow,
+  LoadingState,
+  NumberField,
+  ScreenContainer,
+} from "@/components/ui";
 import { usePlannedSessionDetailQuery } from "@/features/training-blocks/queries/usePlannedSessionDetailQuery";
 import { useQuickCompleteSessionMutation } from "@/features/training-blocks/queries/useQuickCompleteSessionMutation";
+import { useSaveAdjustedSessionResultsMutation } from "@/features/training-blocks/queries/useSaveAdjustedSessionResultsMutation";
 import { appTheme } from "@/theme/appTheme";
 
 const WorkoutDetailScreen = () => {
@@ -12,6 +22,14 @@ const WorkoutDetailScreen = () => {
   const sessionId = typeof params.sessionId === "string" ? params.sessionId : null;
   const plannedSessionQuery = usePlannedSessionDetailQuery(sessionId);
   const quickCompleteSessionMutation = useQuickCompleteSessionMutation(sessionId);
+  const saveAdjustedSessionResultsMutation = useSaveAdjustedSessionResultsMutation(sessionId);
+  const [isAdjustedEntryVisible, setIsAdjustedEntryVisible] = useState(false);
+  const [completionStatus, setCompletionStatus] = useState<"completed" | "partial" | "missed">(
+    "completed",
+  );
+  const [adjustedValues, setAdjustedValues] = useState<Record<string, { reps: string; load: string }>>(
+    {},
+  );
 
   if (plannedSessionQuery.isLoading) {
     return (
@@ -58,6 +76,56 @@ const WorkoutDetailScreen = () => {
 
   const plannedSession = plannedSessionQuery.data;
   const isCompleted = plannedSession.status === "completed";
+
+  const updateAdjustedValue = (
+    plannedSetId: string,
+    field: "reps" | "load",
+    value: string,
+  ) => {
+    setAdjustedValues((current) => ({
+      ...current,
+      [plannedSetId]: {
+        reps: current[plannedSetId]?.reps ?? "",
+        load: current[plannedSetId]?.load ?? "",
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleSaveAdjustedResults = async () => {
+    if (sessionId === null) {
+      return;
+    }
+
+    await saveAdjustedSessionResultsMutation.mutateAsync({
+      sessionId,
+      completionStatus,
+      setResults: plannedSession.plannedExercises.flatMap((exercise) =>
+        exercise.plannedSets.map((plannedSet) => {
+          const adjustedValue = adjustedValues[plannedSet.id];
+          const parsedReps =
+            adjustedValue?.reps.trim() === undefined || adjustedValue?.reps.trim() === ""
+              ? plannedSet.targetReps
+              : Number(adjustedValue.reps);
+          const parsedLoad =
+            adjustedValue?.load.trim() === undefined || adjustedValue?.load.trim() === ""
+              ? plannedSet.targetLoad
+              : Number(adjustedValue.load);
+
+          return {
+            plannedSetId: plannedSet.id,
+            setIndex: plannedSet.setIndex,
+            actualReps: Number.isFinite(parsedReps) ? parsedReps : plannedSet.targetReps,
+            actualLoad: Number.isFinite(parsedLoad) ? parsedLoad : plannedSet.targetLoad,
+            actualRpe: plannedSet.targetRpe,
+            isCompleted: completionStatus !== "missed",
+          };
+        }),
+      ),
+    });
+
+    setIsAdjustedEntryVisible(false);
+  };
 
   return (
     <ScreenContainer
@@ -120,6 +188,13 @@ const WorkoutDetailScreen = () => {
               : "Quick completion failed. Try again from this session screen."}
           </Text>
         ) : null}
+        {saveAdjustedSessionResultsMutation.isError ? (
+          <Text style={styles.errorText}>
+            {saveAdjustedSessionResultsMutation.error instanceof Error
+              ? saveAdjustedSessionResultsMutation.error.message
+              : "Adjusted result saving failed. Review the entered values and try again."}
+          </Text>
+        ) : null}
         <Button
           disabled={isCompleted}
           label={
@@ -138,7 +213,86 @@ const WorkoutDetailScreen = () => {
           }}
           variant={isCompleted ? "secondary" : "primary"}
         />
-        <Button label="Enter adjusted results" variant="secondary" />
+        <Button
+          disabled={isCompleted}
+          label={isAdjustedEntryVisible ? "Hide adjusted result entry" : "Enter adjusted results"}
+          onPress={() => {
+            if (isCompleted) {
+              return;
+            }
+
+            setIsAdjustedEntryVisible((current) => !current);
+          }}
+          variant="secondary"
+        />
+      </Card>
+
+      {isAdjustedEntryVisible ? (
+        <Card>
+          <View style={styles.adjustedHeader}>
+            <Text style={styles.adjustedTitle}>Adjusted result entry</Text>
+            <Text style={styles.adjustedDescription}>
+              Save actual reps and load for sets that were modified, partially completed, or missed.
+            </Text>
+          </View>
+          <View style={styles.statusRow}>
+            {(["completed", "partial", "missed"] as const).map((statusOption) => (
+              <Button
+                key={statusOption}
+                label={statusOption}
+                onPress={() => {
+                  setCompletionStatus(statusOption);
+                }}
+                variant={completionStatus === statusOption ? "primary" : "secondary"}
+              />
+            ))}
+          </View>
+          {plannedSession.plannedExercises.map((exercise) => (
+            <Card key={`${exercise.id}-adjusted`}>
+              <Text style={styles.exerciseName}>{exercise.exerciseName}</Text>
+              {exercise.plannedSets.map((plannedSet) => (
+                <View key={`${plannedSet.id}-fields`} style={styles.adjustedSetBlock}>
+                  <Text style={styles.adjustedSetTitle}>Set {plannedSet.setIndex}</Text>
+                  <NumberField
+                    helperText={`Default planned reps: ${plannedSet.targetReps}`}
+                    label="Actual reps"
+                    onChangeText={(value) => {
+                      updateAdjustedValue(plannedSet.id, "reps", value);
+                    }}
+                    value={adjustedValues[plannedSet.id]?.reps ?? ""}
+                  />
+                  <NumberField
+                    helperText={`Default planned load: ${plannedSet.targetLoad} kg`}
+                    label="Actual load"
+                    onChangeText={(value) => {
+                      updateAdjustedValue(plannedSet.id, "load", value);
+                    }}
+                    value={adjustedValues[plannedSet.id]?.load ?? ""}
+                  />
+                </View>
+              ))}
+            </Card>
+          ))}
+          <Button
+            label={
+              saveAdjustedSessionResultsMutation.isPending
+                ? "Saving adjusted results..."
+                : "Save adjusted results"
+            }
+            onPress={() => {
+              void handleSaveAdjustedResults();
+            }}
+          />
+        </Card>
+      ) : null}
+      <Card>
+        <Button
+          label="Back to Today"
+          onPress={() => {
+            router.push("/(tabs)/today");
+          }}
+          variant="secondary"
+        />
       </Card>
     </ScreenContainer>
   );
@@ -204,5 +358,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     color: appTheme.colors.danger,
+  },
+  adjustedHeader: {
+    gap: appTheme.spacing.xs,
+  },
+  adjustedTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: appTheme.colors.textPrimary,
+  },
+  adjustedDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: appTheme.colors.textSecondary,
+  },
+  statusRow: {
+    gap: appTheme.spacing.sm,
+  },
+  adjustedSetBlock: {
+    gap: appTheme.spacing.sm,
+  },
+  adjustedSetTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: appTheme.colors.textPrimary,
   },
 });

@@ -850,4 +850,82 @@ export class TrainingBlockRepository extends BaseRepository {
       }
     });
   }
+
+  async saveAdjustedSessionResultsAsync(input: {
+    sessionId: string;
+    completionStatus: "completed" | "partial" | "missed";
+    setResults: readonly {
+      plannedSetId: string;
+      setIndex: number;
+      actualReps: number | null;
+      actualLoad: number | null;
+      actualRpe: number | null;
+      isCompleted: boolean;
+    }[];
+  }): Promise<void> {
+    const session = await this.getPlannedSessionDetailAsync(input.sessionId);
+
+    if (session === null) {
+      throw new Error(`[training-blocks] Planned session ${input.sessionId} was not found.`);
+    }
+
+    const completedAt = new Date().toISOString();
+    const workoutResultId = makeId("workout_result");
+
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.runAsync(
+        `
+          UPDATE planned_sessions
+          SET status = ?
+          WHERE id = ?
+        `,
+        input.completionStatus === "missed" ? "skipped" : "completed",
+        input.sessionId,
+      );
+
+      await transaction.runAsync(
+        `
+          INSERT OR REPLACE INTO workout_results (
+            id,
+            session_id,
+            completed_at,
+            completion_status,
+            notes,
+            perceived_difficulty
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        workoutResultId,
+        input.sessionId,
+        completedAt,
+        input.completionStatus,
+        "Saved through adjusted result entry.",
+        null,
+      );
+
+      for (const setResult of input.setResults) {
+        await transaction.runAsync(
+          `
+            INSERT OR REPLACE INTO logged_set_results (
+              id,
+              workout_result_id,
+              planned_set_id,
+              set_index,
+              actual_reps,
+              actual_load,
+              actual_rpe,
+              is_completed
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          makeId("logged_set_result"),
+          workoutResultId,
+          setResult.plannedSetId,
+          setResult.setIndex,
+          setResult.actualReps,
+          setResult.actualLoad,
+          setResult.actualRpe,
+          setResult.isCompleted ? 1 : 0,
+        );
+      }
+    });
+  }
 }
