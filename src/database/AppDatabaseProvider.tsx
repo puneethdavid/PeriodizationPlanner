@@ -5,6 +5,7 @@ import { Text } from "react-native";
 import type { SQLiteDatabase } from "expo-sqlite";
 
 import { PlaceholderScreen } from "@/components/navigation/PlaceholderScreen";
+import { LoadingState } from "@/components/ui";
 import { getAppDatabaseAsync } from "@/database/client";
 import { createRepositoryContext, type RepositoryContext } from "@/database/repository";
 import { latestSchemaVersion } from "@/database/migrations";
@@ -26,7 +27,12 @@ const DatabaseLoadingScreen = () => {
       eyebrow="Local Data"
       title="Preparing database"
       description="Initializing the local SQLite foundation for plans, logs, and future sync-safe persistence."
-    />
+    >
+      <LoadingState
+        title="Running local setup"
+        description="Migrations and repository foundations are being prepared once at app startup."
+      />
+    </PlaceholderScreen>
   );
 };
 
@@ -37,6 +43,10 @@ const DatabaseErrorScreen = ({ error }: { error: Error }) => {
       title="Database startup failed"
       description="The app could not initialize its local SQLite store. Fix the startup error before continuing."
     >
+      <LoadingState
+        title="Initialization stopped"
+        description="Check the development error details below before continuing."
+      />
       <Text style={{ marginTop: 18, color: appTheme.colors.textSecondary }}>{error.message}</Text>
     </PlaceholderScreen>
   );

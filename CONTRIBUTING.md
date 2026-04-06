@@ -57,6 +57,12 @@ Current local variables:
 - Parse raw inputs once, then pass validated values into repositories or domain services.
 - Reference `docs/schema-conventions.md` before adding new validation modules.
 
+## UI Primitives
+
+- Put reusable mobile building blocks in `src/components/ui/`.
+- Use `ScreenContainer` for route-level scaffolding and shared primitives for forms, cards, and state views.
+- Prefer extending the primitive set carefully instead of creating one-off screen-only controls.
+
 ## Style
 
 - Follow ESLint and Prettier as the source of truth for formatting and baseline code quality.

@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 
-import { PlaceholderScreen } from "@/components/navigation/PlaceholderScreen";
+import { Button, Card, ListRow, ScreenContainer } from "@/components/ui";
 import { runtimeConfig } from "@/config/runtimeConfig";
 import { useAppDatabase } from "@/database/AppDatabaseProvider";
 import { useDatabaseSummaryQuery } from "@/features/app-shell/queries/useDatabaseSummaryQuery";
@@ -11,33 +11,51 @@ const SettingsScreen = () => {
   const databaseSummaryQuery = useDatabaseSummaryQuery();
 
   return (
-    <PlaceholderScreen
+    <ScreenContainer
       eyebrow="Profile"
       title="Settings"
       description="Profile preferences, app configuration, and future sync controls will live here."
     >
-      <View style={{ marginTop: 18, gap: 8 }}>
-        <Text style={{ color: appTheme.colors.textPrimary, fontWeight: "700" }}>
-          Runtime environment: {runtimeConfig.appEnv}
-        </Text>
-        <Text style={{ color: appTheme.colors.textSecondary }}>
-          Supabase: {runtimeConfig.supabase.url === null ? "not configured" : "configured"}
-        </Text>
-        <Text style={{ color: appTheme.colors.textSecondary }}>
-          Notifications:{" "}
-          {runtimeConfig.notifications.projectId === null ? "not configured" : "configured"}
-        </Text>
-        <Text style={{ color: appTheme.colors.textSecondary }}>
-          Schema version: {schemaVersion}
-        </Text>
-        <Text style={{ color: appTheme.colors.textSecondary }}>
-          Applied migrations: {databaseSummaryQuery.data?.migrationCount ?? "loading"}
-        </Text>
+      <Card>
+        <View style={{ gap: 8 }}>
+          <ListRow
+            title="Runtime environment"
+            description="Validated through the shared config module."
+            trailing={<Text>{runtimeConfig.appEnv}</Text>}
+          />
+          <ListRow
+            title="Supabase"
+            description="Future sync adapter configuration."
+            trailing={
+              <Text>{runtimeConfig.supabase.url === null ? "not configured" : "configured"}</Text>
+            }
+          />
+          <ListRow
+            title="Notifications"
+            description="Future reminder and prompt setup."
+            trailing={
+              <Text>
+                {runtimeConfig.notifications.projectId === null ? "not configured" : "configured"}
+              </Text>
+            }
+          />
+          <ListRow
+            title="Schema version"
+            description="Latest migration version known to the app shell."
+            trailing={<Text>{schemaVersion}</Text>}
+          />
+          <ListRow
+            title="Applied migrations"
+            description="Sample TanStack Query read from the local repository layer."
+            trailing={<Text>{databaseSummaryQuery.data?.migrationCount ?? "loading"}</Text>}
+          />
+        </View>
         <Text style={{ color: appTheme.colors.textSecondary }}>
           Database path: {databaseSummaryQuery.data?.databasePath ?? "loading"}
         </Text>
-      </View>
-    </PlaceholderScreen>
+        <Button label="Review sync readiness" variant="secondary" />
+      </Card>
+    </ScreenContainer>
   );
 };
 
