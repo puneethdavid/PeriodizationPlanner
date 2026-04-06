@@ -95,6 +95,17 @@ type PlannedSetRow = {
   is_amrap: number;
 };
 
+type WorkoutHistoryRow = {
+  session_id: string;
+  session_title: string;
+  scheduled_date: string;
+  completion_status: "completed" | "partial" | "missed";
+  completed_at: string;
+  session_type: PlannedSession["sessionType"];
+  exercise_count: number;
+  planned_set_count: number;
+};
+
 const makeId = (prefix: string): string => {
   const timestamp = Date.now().toString(36);
   const randomPart = Math.floor(Math.random() * 1_000_000_000)
@@ -927,5 +938,58 @@ export class TrainingBlockRepository extends BaseRepository {
         );
       }
     });
+  }
+
+  async getCompletedSessionHistoryAsync(): Promise<
+    readonly {
+      sessionId: string;
+      title: string;
+      scheduledDate: string;
+      completedAt: string;
+      completionStatus: "completed" | "partial" | "missed";
+      sessionType: PlannedSession["sessionType"];
+      exerciseCount: number;
+      plannedSetCount: number;
+    }[]
+  > {
+    const rows = await this.database.getAllAsync<WorkoutHistoryRow>(
+      `
+        SELECT
+          workout_results.session_id AS session_id,
+          planned_sessions.title AS session_title,
+          planned_sessions.scheduled_date AS scheduled_date,
+          workout_results.completion_status AS completion_status,
+          workout_results.completed_at AS completed_at,
+          planned_sessions.session_type AS session_type,
+          COUNT(DISTINCT planned_exercises.id) AS exercise_count,
+          COUNT(DISTINCT planned_sets.id) AS planned_set_count
+        FROM workout_results
+        INNER JOIN planned_sessions
+          ON planned_sessions.id = workout_results.session_id
+        LEFT JOIN planned_exercises
+          ON planned_exercises.session_id = planned_sessions.id
+        LEFT JOIN planned_sets
+          ON planned_sets.planned_exercise_id = planned_exercises.id
+        GROUP BY
+          workout_results.session_id,
+          planned_sessions.title,
+          planned_sessions.scheduled_date,
+          workout_results.completion_status,
+          workout_results.completed_at,
+          planned_sessions.session_type
+        ORDER BY workout_results.completed_at DESC
+      `,
+    );
+
+    return rows.map((row) => ({
+      sessionId: row.session_id,
+      title: row.session_title,
+      scheduledDate: row.scheduled_date,
+      completedAt: row.completed_at,
+      completionStatus: row.completion_status,
+      sessionType: row.session_type,
+      exerciseCount: row.exercise_count,
+      plannedSetCount: row.planned_set_count,
+    }));
   }
 }
