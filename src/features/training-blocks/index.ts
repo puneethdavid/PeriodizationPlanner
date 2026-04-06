@@ -3,4 +3,5 @@ export * from "@/features/training-blocks/fixtures/trainingFixtures";
 export * from "@/features/training-blocks/repository/TrainingBlockRepository";
 export * from "@/features/training-blocks/schema/trainingBlockSchemas";
 export * from "@/features/training-blocks/services/fixedBlockGenerator";
+export * from "@/features/training-blocks/services/trainingBlockCreationService";
 export * from "@/features/training-blocks/services/trainingMaxService";
