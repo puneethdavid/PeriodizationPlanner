@@ -23,6 +23,13 @@ Use `npm run format` or `npm run lint:fix` when you want automatic cleanup.
 - Use the `@/` alias for app source imports under `src/`.
 - Keep relative imports for nearby files in the same folder only when they are simpler.
 
+## Routes
+
+- Expo Router lives in the `app/` directory and owns app navigation.
+- Keep top-level shell routes in `app/(tabs)/` for the main user areas.
+- Put shared providers, theme helpers, and reusable UI in `src/`.
+- Keep route files thin and move reusable view code into `src/` when screens grow.
+
 ## Style
 
 - Follow ESLint and Prettier as the source of truth for formatting and baseline code quality.

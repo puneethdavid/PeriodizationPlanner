@@ -2,7 +2,7 @@
   "name": "periodization-planner",
   "version": "0.1.0",
   "private": true,
-  "main": "expo/AppEntry.js",
+  "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
@@ -15,10 +15,13 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.75.7",
     "expo": "~53.0.0",
+    "expo-router": "~5.0.0",
     "expo-status-bar": "~2.2.3",
     "react": "19.0.0",
-    "react-native": "0.79.0"
+    "react-native": "0.79.0",
+    "react-native-safe-area-context": "^5.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.24.0",
