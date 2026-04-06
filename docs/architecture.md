@@ -78,6 +78,7 @@ src/features/training-blocks/
 - `app/` routing shell and screen entry points
 - `src/components/` shared UI building blocks
 - `src/config/` public runtime configuration
+- `src/database/` SQLite bootstrap, migrations, and repository foundations
 - `src/providers/` app-wide framework composition
 - `src/theme/` shared theme tokens
 
