@@ -110,3 +110,5 @@ export const useAppDatabase = (): AppDatabaseContextValue => {
 
   return context;
 };
+
+export type { AppDatabaseContextValue };

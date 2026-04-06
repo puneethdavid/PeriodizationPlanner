@@ -43,6 +43,13 @@ Current local variables:
 - Put shared providers, theme helpers, and reusable UI in `src/`.
 - Keep route files thin and move reusable view code into `src/` when screens grow.
 
+## Queries
+
+- Read and write app data through repositories, then expose it to screens through TanStack Query hooks.
+- Define query keys in `src/query/queryKeys.ts`.
+- Keep mutation side effects explicit: write through a repository, then invalidate the affected local query keys.
+- Reference `docs/query-conventions.md` when adding new query hooks.
+
 ## Style
 
 - Follow ESLint and Prettier as the source of truth for formatting and baseline code quality.

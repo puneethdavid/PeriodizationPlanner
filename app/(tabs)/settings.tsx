@@ -2,9 +2,14 @@ import { Text, View } from "react-native";
 
 import { PlaceholderScreen } from "@/components/navigation/PlaceholderScreen";
 import { runtimeConfig } from "@/config/runtimeConfig";
+import { useAppDatabase } from "@/database/AppDatabaseProvider";
+import { useDatabaseSummaryQuery } from "@/features/app-shell/queries/useDatabaseSummaryQuery";
 import { appTheme } from "@/theme/appTheme";
 
 const SettingsScreen = () => {
+  const { schemaVersion } = useAppDatabase();
+  const databaseSummaryQuery = useDatabaseSummaryQuery();
+
   return (
     <PlaceholderScreen
       eyebrow="Profile"
@@ -21,6 +26,15 @@ const SettingsScreen = () => {
         <Text style={{ color: appTheme.colors.textSecondary }}>
           Notifications:{" "}
           {runtimeConfig.notifications.projectId === null ? "not configured" : "configured"}
+        </Text>
+        <Text style={{ color: appTheme.colors.textSecondary }}>
+          Schema version: {schemaVersion}
+        </Text>
+        <Text style={{ color: appTheme.colors.textSecondary }}>
+          Applied migrations: {databaseSummaryQuery.data?.migrationCount ?? "loading"}
+        </Text>
+        <Text style={{ color: appTheme.colors.textSecondary }}>
+          Database path: {databaseSummaryQuery.data?.databasePath ?? "loading"}
         </Text>
       </View>
     </PlaceholderScreen>
