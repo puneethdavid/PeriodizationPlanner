@@ -12,7 +12,10 @@ export const queryKeys = {
     archivedPlans: () => ["training-blocks", "archived-plans"] as const,
     adaptationSummaries: () => ["training-blocks", "adaptation-summaries"] as const,
     lpReview: () => ["training-blocks", "lp-review"] as const,
-    overview: () => ["training-blocks", "overview"] as const,
+    overview: (monthKey?: string) =>
+      monthKey === undefined
+        ? (["training-blocks", "overview"] as const)
+        : (["training-blocks", "overview", monthKey] as const),
   },
   today: {
     all: ["today"] as const,
@@ -20,7 +23,10 @@ export const queryKeys = {
   },
   workouts: {
     all: ["workouts"] as const,
-    history: () => ["workouts", "history"] as const,
+    history: (monthKey?: string) =>
+      monthKey === undefined
+        ? (["workouts", "history"] as const)
+        : (["workouts", "history", monthKey] as const),
     detail: (sessionId: string) => ["workouts", "detail", sessionId] as const,
     review: (sessionId: string) => ["workouts", "review", sessionId] as const,
   },

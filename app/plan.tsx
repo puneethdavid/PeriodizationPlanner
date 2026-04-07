@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, EmptyState, ListRow, LoadingState, ScreenContainer } from "@/components/ui";
@@ -6,11 +7,14 @@ import { useActiveLpPlanReviewQuery } from "@/features/training-blocks/queries/u
 import { useAdaptationSummariesQuery } from "@/features/training-blocks/queries/useAdaptationSummariesQuery";
 import { useArchivedTrainingBlocksQuery } from "@/features/training-blocks/queries/useArchivedTrainingBlocksQuery";
 import { useBlockOverviewQuery } from "@/features/training-blocks/queries/useBlockOverviewQuery";
+import { formatTrainingWeekday } from "@/features/training-blocks/services/blockSchedulingService";
+import { getSessionKindLabel, getSessionStatusLabel } from "@/features/training-blocks/services/sessionPresentation";
 import { appTheme } from "@/theme/appTheme";
 
 const BlockOverviewScreen = () => {
   const router = useRouter();
-  const blockOverviewQuery = useBlockOverviewQuery();
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null);
+  const blockOverviewQuery = useBlockOverviewQuery(selectedMonthKey);
   const archivedBlocksQuery = useArchivedTrainingBlocksQuery();
   const adaptationSummariesQuery = useAdaptationSummariesQuery();
   const lpPlanReviewQuery = useActiveLpPlanReviewQuery();
@@ -41,12 +45,69 @@ const BlockOverviewScreen = () => {
   const archivedBlocks = archivedBlocksQuery.data ?? [];
   const adaptationSummaries = adaptationSummariesQuery.data ?? [];
   const lpPlanReview = lpPlanReviewQuery.data ?? null;
+  const availableMonths = overview?.availableMonths ?? [];
+  const effectiveSelectedMonthKey = overview?.selectedMonthKey ?? null;
+  const selectedMonthIndex = availableMonths.findIndex(
+    (month) => month.key === effectiveSelectedMonthKey,
+  );
+  const selectedMonth = selectedMonthIndex === -1 ? null : (availableMonths[selectedMonthIndex] ?? null);
+  const groupedWeeks = useMemo(() => {
+    if (overview === null || overview === undefined) {
+      return [];
+    }
+
+    const weeksMap = new Map<
+      number,
+      {
+        weekIndex: number;
+        sessions: {
+          sessionId: string;
+          title: string;
+          scheduledDate: string;
+          scheduledWeekdayLabel: string | null;
+          sessionKindLabel: string;
+          sessionStatusLabel: string;
+          sessionType: string;
+          status: string;
+        }[];
+      }
+    >();
+
+    overview.sessions.forEach((session) => {
+      const nextSession = {
+        sessionId: session.sessionId,
+        title: session.title,
+        scheduledDate: session.scheduledDate,
+        scheduledWeekdayLabel: formatTrainingWeekday(session.scheduledWeekday),
+        sessionKindLabel: getSessionKindLabel({ sessionType: session.sessionType }),
+        sessionStatusLabel: getSessionStatusLabel({ status: session.status }),
+        sessionType: session.sessionType,
+        status: session.status,
+      };
+      const existingWeek = weeksMap.get(session.weekIndex);
+
+      if (existingWeek === undefined) {
+        weeksMap.set(session.weekIndex, {
+          weekIndex: session.weekIndex,
+          sessions: [nextSession],
+        });
+        return;
+      }
+
+      weeksMap.set(session.weekIndex, {
+        weekIndex: existingWeek.weekIndex,
+        sessions: [...existingWeek.sessions, nextSession],
+      });
+    });
+
+    return [...weeksMap.values()].sort((left, right) => left.weekIndex - right.weekIndex);
+  }, [overview]);
 
   return (
     <ScreenContainer
       eyebrow="Full Plan"
       title="Active block"
-      description="Inspect the full generated plan, grouped by training week."
+      description="Inspect the active block one month at a time, grouped by training week."
     >
       {overview === null || overview === undefined ? (
         <Card>
@@ -83,6 +144,46 @@ const BlockOverviewScreen = () => {
                   ? "No saved schedule metadata"
                   : `${overview.trainingDaysPerWeek} training days per week on ${overview.selectedWeekdaysLabel ?? "saved weekdays"}`}
               </Text>
+            </View>
+          </Card>
+
+          <Card>
+            <View style={styles.weekHeader}>
+              <Text style={styles.weekTitle}>Month view</Text>
+              <Text style={styles.weekMeta}>
+                {selectedMonth === null ? "No scheduled months" : `${selectedMonth.itemCount} sessions`}
+              </Text>
+            </View>
+            <Text style={styles.blockMeta}>
+              {selectedMonth === null
+                ? "There are no scheduled sessions to browse yet."
+                : `Showing ${selectedMonth.label}. Only sessions inside this month are loaded into the full-plan view.`}
+            </Text>
+            <View style={styles.monthNavigationRow}>
+              <Button
+                disabled={selectedMonthIndex <= 0}
+                label="Previous month"
+                onPress={() => {
+                  if (selectedMonthIndex <= 0) {
+                    return;
+                  }
+
+                  setSelectedMonthKey(availableMonths[selectedMonthIndex - 1]?.key ?? null);
+                }}
+                variant="secondary"
+              />
+              <Button
+                disabled={selectedMonthIndex === -1 || selectedMonthIndex >= availableMonths.length - 1}
+                label="Next month"
+                onPress={() => {
+                  if (selectedMonthIndex === -1 || selectedMonthIndex >= availableMonths.length - 1) {
+                    return;
+                  }
+
+                  setSelectedMonthKey(availableMonths[selectedMonthIndex + 1]?.key ?? null);
+                }}
+                variant="secondary"
+              />
             </View>
           </Card>
 
@@ -176,7 +277,7 @@ const BlockOverviewScreen = () => {
             )}
           </Card>
 
-          {overview.weeks.map((week) => (
+          {groupedWeeks.map((week) => (
             <Card key={week.weekIndex}>
               <View style={styles.weekHeader}>
                 <Text style={styles.weekTitle}>Week {week.weekIndex}</Text>
@@ -292,6 +393,10 @@ const styles = StyleSheet.create({
   weekMeta: {
     fontSize: 13,
     color: appTheme.colors.textSecondary,
+  },
+  monthNavigationRow: {
+    flexDirection: "row",
+    gap: appTheme.spacing.sm,
   },
   trailingColumn: {
     alignItems: "flex-end",

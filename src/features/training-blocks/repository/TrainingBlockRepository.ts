@@ -66,6 +66,12 @@ import {
 } from "@/features/training-blocks/services/lpProgressionStateService";
 import { deriveLpProgramLevel } from "@/features/training-blocks/services/linearPeriodizationProgramService";
 import {
+  formatCalendarMonthLabel,
+  resolveRequestedMonthKey,
+  type CalendarMonthOption,
+} from "@/features/training-blocks/services/calendarMonthService";
+import {
+  formatTrainingWeekday,
   parseSerializedTrainingWeekdays,
   serializeTrainingWeekdays,
   validateBlockSchedulingPreferences,
@@ -209,6 +215,22 @@ type SessionCountRow = {
   final_test_sessions: number;
 };
 
+type MonthCountRow = {
+  month_key: string;
+  item_count: number;
+};
+
+type PlannedSessionMonthSummaryRow = {
+  session_id: string;
+  scheduled_date: string;
+  scheduled_weekday: PlannedSession["scheduledWeekday"];
+  session_index: number;
+  week_index: number;
+  session_type: PlannedSession["sessionType"];
+  title: string;
+  status: PlannedSession["status"];
+};
+
 type AdaptationSummaryRow = {
   event_id: string;
   block_revision_id: string | null;
@@ -318,6 +340,48 @@ export type ActiveLpPlanReview = {
     addedWeeks: number;
     reason: string;
     createdAt: string;
+  }[];
+};
+
+export type ActiveBlockMonthOverview = {
+  blockId: string;
+  blockName: string;
+  goalSlug: string;
+  startDate: string;
+  endDate: string;
+  durationWeeks: number | null;
+  primaryGoal: string | null;
+  secondaryGoal: string | null;
+  trainingDaysPerWeek: number | null;
+  selectedWeekdaysLabel: string | null;
+  selectedMonthKey: string | null;
+  availableMonths: readonly CalendarMonthOption[];
+  sessions: readonly {
+    sessionId: string;
+    title: string;
+    scheduledDate: string;
+    scheduledWeekday: PlannedSession["scheduledWeekday"];
+    sessionIndex: number;
+    weekIndex: number;
+    sessionType: PlannedSession["sessionType"];
+    status: PlannedSession["status"];
+  }[];
+};
+
+export type CompletedSessionHistoryMonthOverview = {
+  selectedMonthKey: string | null;
+  availableMonths: readonly CalendarMonthOption[];
+  sessions: readonly {
+    sessionId: string;
+    title: string;
+    scheduledDate: string;
+    completedAt: string;
+    completionStatus: "completed" | "partial" | "missed";
+    sessionType: PlannedSession["sessionType"];
+    exerciseCount: number;
+    plannedSetCount: number;
+    blockName: string;
+    blockStatus: TrainingBlock["status"];
   }[];
 };
 
@@ -1601,6 +1665,125 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
     );
   }
 
+  async getActiveBlockMonthOverviewAsync(
+    requestedMonthKey?: string | null,
+  ): Promise<ActiveBlockMonthOverview | null> {
+    const activeBlockRow = await this.database.getFirstAsync<TrainingBlockRow>(
+      `
+        SELECT
+          id,
+          name,
+          status,
+          goal_slug,
+          start_date,
+          end_date,
+          benchmark_snapshot_id,
+          generation_version,
+          notes,
+          training_days_per_week,
+          selected_training_weekdays,
+          duration_weeks,
+          primary_goal,
+          secondary_goal,
+          benchmark_lift_slugs,
+          primary_lifts_per_session,
+          secondary_lifts_per_session,
+          primary_lift_pool,
+          secondary_lift_pool,
+          target_lift_goals,
+          created_at,
+          updated_at
+        FROM training_blocks
+        WHERE status = 'active'
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
+    );
+
+    if (activeBlockRow === null) {
+      return null;
+    }
+
+    const block = mapTrainingBlockRow(activeBlockRow);
+    const selectedWeekdaysLabel =
+      block.schedulingPreferences?.selectedTrainingWeekdays
+        .map((weekday) => formatTrainingWeekday(weekday))
+        .filter((label): label is string => label !== null)
+        .join(", ") ?? null;
+
+    const monthRows = await this.database.getAllAsync<MonthCountRow>(
+      `
+        SELECT
+          substr(scheduled_date, 1, 7) AS month_key,
+          COUNT(*) AS item_count
+        FROM planned_sessions
+        WHERE block_id = ?
+        GROUP BY substr(scheduled_date, 1, 7)
+        ORDER BY month_key ASC
+      `,
+      block.id,
+    );
+
+    const availableMonths = monthRows.map((row) => ({
+      key: row.month_key,
+      label: formatCalendarMonthLabel(row.month_key),
+      itemCount: row.item_count,
+    }));
+    const selectedMonthKey = resolveRequestedMonthKey(
+      requestedMonthKey,
+      availableMonths.map((month) => month.key),
+      "first",
+    );
+
+    const sessionRows =
+      selectedMonthKey === null
+        ? []
+        : await this.database.getAllAsync<PlannedSessionMonthSummaryRow>(
+            `
+              SELECT
+                id AS session_id,
+                scheduled_date,
+                scheduled_weekday,
+                session_index,
+                week_index,
+                session_type,
+                title,
+                status
+              FROM planned_sessions
+              WHERE block_id = ?
+                AND substr(scheduled_date, 1, 7) = ?
+              ORDER BY scheduled_date ASC, session_index ASC
+            `,
+            block.id,
+            selectedMonthKey,
+          );
+
+    return {
+      blockId: block.id,
+      blockName: block.name,
+      goalSlug: block.goalSlug,
+      startDate: block.startDate,
+      endDate: block.endDate,
+      durationWeeks: block.blockConfiguration?.durationWeeks ?? null,
+      primaryGoal: block.blockConfiguration?.primaryGoal ?? null,
+      secondaryGoal: block.blockConfiguration?.secondaryGoal ?? null,
+      trainingDaysPerWeek: block.schedulingPreferences?.trainingDaysPerWeek ?? null,
+      selectedWeekdaysLabel,
+      selectedMonthKey,
+      availableMonths,
+      sessions: sessionRows.map((row) => ({
+        sessionId: row.session_id,
+        title: row.title,
+        scheduledDate: row.scheduled_date,
+        scheduledWeekday: row.scheduled_weekday,
+        sessionIndex: row.session_index,
+        weekIndex: row.week_index,
+        sessionType: row.session_type,
+        status: row.status,
+      })),
+    };
+  }
+
   async getActivePlanSnapshotAsync(): Promise<{
     plan: GeneratedTrainingPlan;
     completedSessions: readonly PlannedSession[];
@@ -2562,6 +2745,89 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       blockName: row.block_name,
       blockStatus: row.block_status,
     }));
+  }
+
+  async getCompletedSessionHistoryByMonthAsync(
+    requestedMonthKey?: string | null,
+  ): Promise<CompletedSessionHistoryMonthOverview> {
+    const monthRows = await this.database.getAllAsync<MonthCountRow>(
+      `
+        SELECT
+          substr(workout_results.completed_at, 1, 7) AS month_key,
+          COUNT(*) AS item_count
+        FROM workout_results
+        GROUP BY substr(workout_results.completed_at, 1, 7)
+        ORDER BY month_key ASC
+      `,
+    );
+
+    const availableMonths = monthRows.map((row) => ({
+      key: row.month_key,
+      label: formatCalendarMonthLabel(row.month_key),
+      itemCount: row.item_count,
+    }));
+    const selectedMonthKey = resolveRequestedMonthKey(
+      requestedMonthKey,
+      availableMonths.map((month) => month.key),
+      "latest",
+    );
+
+    const rows =
+      selectedMonthKey === null
+        ? []
+        : await this.database.getAllAsync<WorkoutHistoryRow>(
+            `
+              SELECT
+                workout_results.session_id AS session_id,
+                planned_sessions.title AS session_title,
+                planned_sessions.scheduled_date AS scheduled_date,
+                workout_results.completion_status AS completion_status,
+                workout_results.completed_at AS completed_at,
+                planned_sessions.session_type AS session_type,
+                COUNT(DISTINCT planned_exercises.id) AS exercise_count,
+                COUNT(DISTINCT planned_sets.id) AS planned_set_count,
+                training_blocks.name AS block_name,
+                training_blocks.status AS block_status
+              FROM workout_results
+              INNER JOIN planned_sessions
+                ON planned_sessions.id = workout_results.session_id
+              INNER JOIN training_blocks
+                ON training_blocks.id = planned_sessions.block_id
+              LEFT JOIN planned_exercises
+                ON planned_exercises.session_id = planned_sessions.id
+              LEFT JOIN planned_sets
+                ON planned_sets.planned_exercise_id = planned_exercises.id
+              WHERE substr(workout_results.completed_at, 1, 7) = ?
+              GROUP BY
+                workout_results.session_id,
+                planned_sessions.title,
+                planned_sessions.scheduled_date,
+                workout_results.completion_status,
+                workout_results.completed_at,
+                planned_sessions.session_type,
+                training_blocks.name,
+                training_blocks.status
+              ORDER BY workout_results.completed_at DESC
+            `,
+            selectedMonthKey,
+          );
+
+    return {
+      selectedMonthKey,
+      availableMonths,
+      sessions: rows.map((row) => ({
+        sessionId: row.session_id,
+        title: row.session_title,
+        scheduledDate: row.scheduled_date,
+        completedAt: row.completed_at,
+        completionStatus: row.completion_status,
+        sessionType: row.session_type,
+        exerciseCount: row.exercise_count,
+        plannedSetCount: row.planned_set_count,
+        blockName: row.block_name,
+        blockStatus: row.block_status,
+      })),
+    };
   }
 
   async getArchivedTrainingBlockSummariesAsync(): Promise<
