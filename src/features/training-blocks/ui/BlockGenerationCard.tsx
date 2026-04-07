@@ -20,8 +20,6 @@ import {
 import { summarizeBlockConfiguration } from "@/features/training-blocks/services/blockConfigurationService";
 import { appTheme } from "@/theme/appTheme";
 
-const requiredBenchmarkCount = 4;
-
 export const BlockGenerationCard = () => {
   const router = useRouter();
   const benchmarksQuery = useBenchmarksQuery();
@@ -29,16 +27,22 @@ export const BlockGenerationCard = () => {
   const activeTrainingBlockQuery = useActiveTrainingBlockQuery();
   const createActiveTrainingBlockMutation = useCreateActiveTrainingBlockMutation();
 
-  const benchmarkCount = benchmarksQuery.data?.length ?? 0;
-  const hasRequiredBenchmarks = benchmarkCount >= requiredBenchmarkCount;
   const savedBlockConfiguration = blockConfigurationQuery.data;
   const hasSavedBlockConfiguration =
     savedBlockConfiguration !== null && savedBlockConfiguration !== undefined;
+  const requiredBenchmarkCount = savedBlockConfiguration?.benchmarkLiftSlugs.length ?? 0;
+  const savedBenchmarkCount = savedBlockConfiguration?.benchmarkLiftSlugs.filter((liftSlug) =>
+    (benchmarksQuery.data ?? []).some((benchmark) => benchmark.liftSlug === liftSlug),
+  ).length ?? 0;
+  const hasRequiredBenchmarks = requiredBenchmarkCount > 0 && savedBenchmarkCount === requiredBenchmarkCount;
   const generationReady = hasRequiredBenchmarks && hasSavedBlockConfiguration;
   const activePlan = activeTrainingBlockQuery.data;
   const nextSession = activePlan?.sessions[0];
   const readinessWarnings = getReadinessWarnings(benchmarksQuery.data, savedBlockConfiguration);
-  const savedBenchmarkSummaries = summarizeSavedBenchmarks(benchmarksQuery.data);
+  const savedBenchmarkSummaries = summarizeSavedBenchmarks(
+    benchmarksQuery.data,
+    savedBlockConfiguration?.benchmarkLiftSlugs,
+  );
   const generationReview = hasSavedBlockConfiguration
     ? summarizeGenerationReview(savedBlockConfiguration)
     : [];
@@ -102,15 +106,17 @@ export const BlockGenerationCard = () => {
       <View style={styles.header}>
         <Text style={styles.title}>Generate active block</Text>
         <Text style={styles.description}>
-          Create one saved local training block from the benchmarks above and send it to the Today
-          flow.
+          Create one saved local training block from the setup and benchmark inputs above, then send
+          it straight into Today.
         </Text>
       </View>
       <Text style={styles.status}>
         {generationReady
-          ? `${benchmarkCount} saved benchmarks are ready for generation.`
+          ? `${savedBenchmarkCount} saved benchmarks are ready for generation.`
           : !hasRequiredBenchmarks
-            ? `Save all ${requiredBenchmarkCount} benchmarks before generating a block.`
+            ? requiredBenchmarkCount === 0
+              ? "Select benchmark lifts in Block setup before generating a block."
+              : `Save all ${requiredBenchmarkCount} selected benchmarks before generating a block.`
             : "Save a valid block configuration before generating a block."}
       </Text>
       <View style={styles.summaryBlock}>

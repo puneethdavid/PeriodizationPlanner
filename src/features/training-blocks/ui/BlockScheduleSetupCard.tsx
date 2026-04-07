@@ -56,6 +56,12 @@ export const BlockScheduleSetupCard = () => {
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasHydratedSavedValues, setHasHydratedSavedValues] = useState(false);
+  const eligibleBenchmarkLiftSlugs = benchmarkEligibleExerciseSlugs.filter((liftSlug) =>
+    draft.primaryLiftPool.includes(liftSlug),
+  );
+  const eligibleTargetGoalLiftSlugs = draft.primaryLiftPool.filter((liftSlug) =>
+    benchmarkEligibleExerciseSlugs.includes(liftSlug),
+  );
 
   useEffect(() => {
     if (blockConfigurationQuery.data === undefined || hasHydratedSavedValues) {
@@ -73,13 +79,13 @@ export const BlockScheduleSetupCard = () => {
   const handleToggleWeekday = (weekday: TrainingWeekday) => {
     setDraft((current) => ({
       ...current,
-        schedulingPreferences: {
-          ...current.schedulingPreferences,
-          selectedTrainingWeekdays: [
-            ...toggleTrainingWeekday(current.schedulingPreferences.selectedTrainingWeekdays, weekday),
-          ],
-        },
-      }));
+      schedulingPreferences: {
+        ...current.schedulingPreferences,
+        selectedTrainingWeekdays: [
+          ...toggleTrainingWeekday(current.schedulingPreferences.selectedTrainingWeekdays, weekday),
+        ],
+      },
+    }));
     setErrorMessage(null);
     setFeedbackMessage(null);
   };
@@ -199,6 +205,29 @@ export const BlockScheduleSetupCard = () => {
           before generating or regenerating the active block.
         </Text>
       </View>
+
+      <View style={styles.summaryGrid}>
+        <View style={styles.summaryBadge}>
+          <Text style={styles.summaryBadgeLabel}>Primary lifts</Text>
+          <Text style={styles.summaryBadgeValue}>{draft.primaryLiftPool.length}</Text>
+        </View>
+        <View style={styles.summaryBadge}>
+          <Text style={styles.summaryBadgeLabel}>Secondary lifts</Text>
+          <Text style={styles.summaryBadgeValue}>{draft.secondaryLiftPool.length}</Text>
+        </View>
+        <View style={styles.summaryBadge}>
+          <Text style={styles.summaryBadgeLabel}>Benchmarks</Text>
+          <Text style={styles.summaryBadgeValue}>{draft.benchmarkLiftSlugs.length}</Text>
+        </View>
+        <View style={styles.summaryBadge}>
+          <Text style={styles.summaryBadgeLabel}>Goal lifts</Text>
+          <Text style={styles.summaryBadgeValue}>{draft.targetLiftGoals.length}</Text>
+        </View>
+      </View>
+      <Text style={styles.sectionDescription}>
+        Pick the training schedule first, then build the primary lift pool. Benchmark inputs and
+        target goals only unlock for benchmark-capable lifts in that primary pool.
+      </Text>
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Training days per week</Text>
@@ -379,14 +408,17 @@ export const BlockScheduleSetupCard = () => {
       {renderLiftSelectionGroup({
         title: "Benchmark lifts",
         description: "Benchmark selections must come from the primary lift pool and only benchmark-capable exercises appear here.",
-        allowedLiftSlugs: benchmarkEligibleExerciseSlugs.filter((liftSlug) =>
-          draft.primaryLiftPool.includes(liftSlug),
-        ),
+        allowedLiftSlugs: eligibleBenchmarkLiftSlugs,
         selectedLiftSlugs: draft.benchmarkLiftSlugs,
         onToggle: (liftSlug) => {
           handleToggleLift("benchmarkLiftSlugs", liftSlug);
         },
       })}
+      {eligibleBenchmarkLiftSlugs.length === 0 ? (
+        <Text style={styles.helperText}>
+          Add at least one benchmark-capable lift to the primary pool to unlock benchmark selection.
+        </Text>
+      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Primary lifts per session</Text>
@@ -482,10 +514,14 @@ export const BlockScheduleSetupCard = () => {
           Select the priority lifts you want the LP program to drive toward. Goal lifts must come
           from the selected primary pool and still require a saved benchmark.
         </Text>
+        {eligibleTargetGoalLiftSlugs.length === 0 ? (
+          <Text style={styles.helperText}>
+            Select benchmark-capable primary lifts first, then choose which of them should get target
+            goals.
+          </Text>
+        ) : null}
         <View style={styles.optionRow}>
-          {draft.primaryLiftPool
-            .filter((liftSlug) => benchmarkEligibleExerciseSlugs.includes(liftSlug))
-            .map((liftSlug) => {
+          {eligibleTargetGoalLiftSlugs.map((liftSlug) => {
             const isSelected = draft.targetLiftGoals.some((goal) => goal.liftSlug === liftSlug);
 
             return (
@@ -514,7 +550,7 @@ export const BlockScheduleSetupCard = () => {
                       isSelected ? styles.choiceChipLabelActive : null,
                     ]}
                   >
-                  {exerciseCatalog[liftSlug].label}
+                    {exerciseCatalog[liftSlug].label}
                   </Text>
                 </Pressable>
             );
@@ -645,6 +681,31 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     color: appTheme.colors.textSecondary,
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: appTheme.spacing.sm,
+  },
+  summaryBadge: {
+    minWidth: 112,
+    gap: 4,
+    borderRadius: appTheme.radius.md,
+    paddingHorizontal: appTheme.spacing.md,
+    paddingVertical: appTheme.spacing.sm,
+    backgroundColor: appTheme.colors.surfaceMuted,
+  },
+  summaryBadgeLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: appTheme.colors.textMuted,
+  },
+  summaryBadgeValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: appTheme.colors.textPrimary,
   },
   optionRow: {
     flexDirection: "row",

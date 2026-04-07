@@ -106,6 +106,11 @@ export const BenchmarkEntryCard = () => {
           workout results logged inside the program.
         </Text>
       </View>
+      <Text style={styles.feedback}>
+        {selectedBenchmarkLifts.length === 0
+          ? "No benchmark lifts are selected yet."
+          : `${selectedBenchmarkLifts.length} selected benchmark lift${selectedBenchmarkLifts.length === 1 ? "" : "s"} will be used for generation.`}
+      </Text>
       {selectedBenchmarkLifts.length === 0 ? (
         <Text style={styles.feedback}>
           Select benchmark-capable primary lifts in Block setup first, then their benchmark inputs
