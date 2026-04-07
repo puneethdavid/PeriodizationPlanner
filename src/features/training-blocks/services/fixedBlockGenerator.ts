@@ -3,9 +3,12 @@ import { parseWithSchema } from "@/schema/parseWithSchema";
 import { assertValidGeneratedTrainingPlan } from "@/features/training-blocks/domain/invariants";
 import {
   benchmarkInputSchema,
+  type BlockSchedulingPreferences,
   type BenchmarkInput,
   type GeneratedTrainingPlan,
+  type TrainingWeekday,
 } from "@/features/training-blocks/schema/trainingBlockSchemas";
+import { trainingWeekdayOrder } from "@/features/training-blocks/services/blockSchedulingService";
 import { deriveTrainingMaxes, roundToLoadIncrement } from "@/features/training-blocks/services/trainingMaxService";
 
 type FixedBlockGeneratorOptions = {
@@ -13,6 +16,10 @@ type FixedBlockGeneratorOptions = {
   blockName?: string;
   goalSlug?: string;
   primaryLiftSlug?: BenchmarkInput["liftSlug"];
+};
+
+type FixedBlockGenerationInput = FixedBlockGeneratorOptions & {
+  schedulingPreferences: BlockSchedulingPreferences;
 };
 
 const microcyclePrescriptions = [
@@ -49,6 +56,27 @@ const addDays = (isoDate: string, days: number): string => {
   return date.toISOString().slice(0, 10);
 };
 
+const getTrainingWeekdayFromIsoDate = (isoDate: string): TrainingWeekday => {
+  const weekdayIndex = new Date(`${isoDate}T00:00:00.000Z`).getUTCDay();
+  const weekdayByJavascriptIndex: Record<number, TrainingWeekday> = {
+    0: "sunday",
+    1: "monday",
+    2: "tuesday",
+    3: "wednesday",
+    4: "thursday",
+    5: "friday",
+    6: "saturday",
+  };
+
+  const weekday = weekdayByJavascriptIndex[weekdayIndex];
+
+  if (weekday === undefined) {
+    throw new Error(`[training-blocks.generator] Unsupported weekday index ${weekdayIndex}.`);
+  }
+
+  return weekday;
+};
+
 const hashString = (value: string): string => {
   let hash = 2166136261;
 
@@ -62,6 +90,35 @@ const hashString = (value: string): string => {
 
 const makeStableId = (prefix: string, ...parts: readonly string[]): string => {
   return `${prefix}_${hashString(parts.join("|"))}`;
+};
+
+const buildScheduledDates = (
+  startDate: string,
+  schedulingPreferences: BlockSchedulingPreferences,
+  weekCount: number,
+): readonly { scheduledDate: string; scheduledWeekday: TrainingWeekday; weekIndex: number }[] => {
+  const selectedWeekdays = [...schedulingPreferences.selectedTrainingWeekdays].sort(
+    (left, right) => trainingWeekdayOrder.indexOf(left) - trainingWeekdayOrder.indexOf(right),
+  );
+  const selectedWeekdaySet = new Set(selectedWeekdays);
+  const scheduledDates: { scheduledDate: string; scheduledWeekday: TrainingWeekday; weekIndex: number }[] = [];
+  let cursorDate = startDate;
+
+  while (scheduledDates.length < schedulingPreferences.trainingDaysPerWeek * weekCount) {
+    const weekday = getTrainingWeekdayFromIsoDate(cursorDate);
+
+    if (selectedWeekdaySet.has(weekday)) {
+      scheduledDates.push({
+        scheduledDate: cursorDate,
+        scheduledWeekday: weekday,
+        weekIndex: Math.floor(scheduledDates.length / schedulingPreferences.trainingDaysPerWeek) + 1,
+      });
+    }
+
+    cursorDate = addDays(cursorDate, 1);
+  }
+
+  return scheduledDates;
 };
 
 const getPrimaryLiftSlug = (
@@ -88,7 +145,7 @@ const getPrimaryLiftSlug = (
 
 export const generateFixedTrainingBlock = (
   benchmarks: readonly BenchmarkInput[],
-  options: FixedBlockGeneratorOptions,
+  options: FixedBlockGenerationInput,
 ): GeneratedTrainingPlan => {
   const normalizedBenchmarks = benchmarks
     .map((benchmark) =>
@@ -101,6 +158,8 @@ export const generateFixedTrainingBlock = (
     options.startDate,
     options.goalSlug ?? "general-strength",
     primaryLiftSlug,
+    String(options.schedulingPreferences.trainingDaysPerWeek),
+    options.schedulingPreferences.selectedTrainingWeekdays.join(","),
     ...normalizedBenchmarks.map(
       (benchmark) =>
         `${benchmark.liftSlug}:${benchmark.benchmarkType}:${benchmark.value}:${benchmark.unit}`,
@@ -123,6 +182,7 @@ export const generateFixedTrainingBlock = (
   const supportTrainingMaxes = trainingMaxes.filter(
     (trainingMax) => trainingMax.liftSlug !== primaryLiftSlug,
   );
+  const scheduledDates = buildScheduledDates(options.startDate, options.schedulingPreferences, microcyclePrescriptions.length);
   const sessions = microcyclePrescriptions.flatMap((prescription, weekIndex) => {
     const supportPrescription = supportLiftPrescriptions[weekIndex];
 
@@ -132,73 +192,66 @@ export const generateFixedTrainingBlock = (
       );
     }
 
-    const weeklySessions = [
-      {
-        trainingMax: primaryTrainingMax,
-        sessionType: prescription.sessionType,
-        title: `${liftDisplayNameBySlug[primaryTrainingMax.liftSlug]} Primary Week ${
-          prescription.weekIndex
-        }`,
-        dayOffset: weekIndex * 7,
-        sets: prescription.sets,
-        reps: prescription.reps,
-        intensity: prescription.intensity,
-      },
-      ...supportTrainingMaxes.map((trainingMax, supportIndex) => ({
-        trainingMax,
-        sessionType:
-          prescription.weekIndex === 4
-            ? ("deload" as const)
-            : ("secondary" as const),
-        title: `${liftDisplayNameBySlug[trainingMax.liftSlug]} Support Week ${
-          prescription.weekIndex
-        }`,
-        dayOffset: weekIndex * 7 + supportIndex + 2,
-        sets: supportPrescription.sets,
-        reps: supportPrescription.reps,
-        intensity: supportPrescription.intensity,
-      })),
-    ];
+    return Array.from({ length: options.schedulingPreferences.trainingDaysPerWeek }, (_, sessionOffset) => {
+      const sessionIndex = weekIndex * options.schedulingPreferences.trainingDaysPerWeek + sessionOffset + 1;
+      const scheduledSlot = scheduledDates[sessionIndex - 1];
 
-    return weeklySessions.map((sessionDefinition, sessionOffset) => {
-      const sessionIndex = weekIndex * weeklySessions.length + sessionOffset + 1;
+      if (scheduledSlot === undefined) {
+        throw new Error(`[training-blocks.generator] Missing scheduled date slot for session ${sessionIndex}.`);
+      }
+
+      const isPrimarySession = sessionOffset === 0;
+      const trainingMax = isPrimarySession
+        ? primaryTrainingMax
+        : supportTrainingMaxes[(weekIndex * Math.max(options.schedulingPreferences.trainingDaysPerWeek - 1, 1) + sessionOffset - 1) % supportTrainingMaxes.length];
+      if (trainingMax === undefined) {
+        throw new Error("[training-blocks.generator] Missing support training max for scheduled support session.");
+      }
+      const sessionType = isPrimarySession
+        ? prescription.sessionType
+        : prescription.weekIndex === 4
+          ? ("deload" as const)
+          : ("secondary" as const);
+      const sets = isPrimarySession ? prescription.sets : supportPrescription.sets;
+      const reps = isPrimarySession ? prescription.reps : supportPrescription.reps;
+      const intensity = isPrimarySession ? prescription.intensity : supportPrescription.intensity;
       const sessionId = makeStableId("session", planKey, String(sessionIndex));
       const plannedExerciseId = makeStableId("exercise", sessionId, "1");
-      const roundedLoad = 
-        roundToLoadIncrement(
-          Number(
-            (sessionDefinition.trainingMax.trainingMax * sessionDefinition.intensity).toFixed(2)
-          ), sessionDefinition.trainingMax.sourceUnit
-        );
+      const roundedLoad = roundToLoadIncrement(
+        Number((trainingMax.trainingMax * intensity).toFixed(2)),
+        trainingMax.sourceUnit,
+      );
 
       return {
         id: sessionId,
         blockId,
         blockRevisionId: revisionId,
-        scheduledDate: addDays(options.startDate, sessionDefinition.dayOffset),
+        scheduledDate: scheduledSlot.scheduledDate,
+        scheduledWeekday: scheduledSlot.scheduledWeekday,
         sessionIndex,
-        weekIndex: prescription.weekIndex,
-        sessionType: sessionDefinition.sessionType,
-        title: sessionDefinition.title,
+        weekIndex: scheduledSlot.weekIndex,
+        sessionType,
+        title: isPrimarySession
+          ? `${liftDisplayNameBySlug[primaryTrainingMax.liftSlug]} Primary Week ${prescription.weekIndex}`
+          : `${liftDisplayNameBySlug[trainingMax.liftSlug]} Support Week ${prescription.weekIndex}`,
         status: "planned" as const,
         plannedExercises: [
           {
             id: plannedExerciseId,
             sessionId,
-            liftSlug: sessionDefinition.trainingMax.liftSlug,
-            exerciseSlug: sessionDefinition.trainingMax.liftSlug,
-            exerciseName: liftDisplayNameBySlug[sessionDefinition.trainingMax.liftSlug],
+            liftSlug: trainingMax.liftSlug,
+            exerciseSlug: trainingMax.liftSlug,
+            exerciseName: liftDisplayNameBySlug[trainingMax.liftSlug],
             exerciseOrder: 1,
             prescriptionKind: "fixed-sets" as const,
-            plannedSets: Array.from({ length: sessionDefinition.sets }, (_, setIndex) => ({
+            plannedSets: Array.from({ length: sets }, (_, setIndex) => ({
               id: makeStableId("set", plannedExerciseId, String(setIndex + 1)),
               plannedExerciseId,
               setIndex: setIndex + 1,
-              targetReps: sessionDefinition.reps,
+              targetReps: reps,
               targetLoad: roundedLoad,
               targetRpe: prescription.weekIndex === 4 ? 6 : 7,
-              restSeconds:
-                sessionDefinition.trainingMax.liftSlug === "deadlift" ? 180 : 150,
+              restSeconds: trainingMax.liftSlug === "deadlift" ? 180 : 150,
               tempo: null,
               isAmrap: false,
             })),
@@ -207,6 +260,7 @@ export const generateFixedTrainingBlock = (
       };
     });
   });
+  const lastScheduledDate = scheduledDates.at(-1)?.scheduledDate ?? addDays(options.startDate, 27);
 
   return assertValidGeneratedTrainingPlan({
     block: {
@@ -215,11 +269,12 @@ export const generateFixedTrainingBlock = (
       status: "draft",
       goalSlug: options.goalSlug ?? "general-strength",
       startDate: options.startDate,
-      endDate: addDays(options.startDate, 27),
+      endDate: lastScheduledDate,
       benchmarkSnapshotId,
       generationVersion: "v1-fixed-benchmark-block",
       createdAt,
       updatedAt: createdAt,
+      schedulingPreferences: options.schedulingPreferences,
       notes: `Generated from local benchmark inputs with ${liftDisplayNameBySlug[primaryLiftSlug]} as the primary lift focus.`,
     },
     revision: {

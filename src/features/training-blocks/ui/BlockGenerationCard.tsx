@@ -4,7 +4,9 @@ import { StyleSheet, Text, View } from "react-native";
 import { Button, Card } from "@/components/ui";
 import { useActiveTrainingBlockQuery } from "@/features/training-blocks/queries/useActiveTrainingBlockQuery";
 import { useBenchmarksQuery } from "@/features/training-blocks/queries/useBenchmarksQuery";
+import { useBlockSchedulingPreferencesQuery } from "@/features/training-blocks/queries/useBlockSchedulingPreferencesQuery";
 import { useCreateActiveTrainingBlockMutation } from "@/features/training-blocks/queries/useCreateActiveTrainingBlockMutation";
+import { formatTrainingWeekday } from "@/features/training-blocks/services/blockSchedulingService";
 import { appTheme } from "@/theme/appTheme";
 
 const requiredBenchmarkCount = 4;
@@ -12,16 +14,25 @@ const requiredBenchmarkCount = 4;
 export const BlockGenerationCard = () => {
   const router = useRouter();
   const benchmarksQuery = useBenchmarksQuery();
+  const schedulingPreferencesQuery = useBlockSchedulingPreferencesQuery();
   const activeTrainingBlockQuery = useActiveTrainingBlockQuery();
   const createActiveTrainingBlockMutation = useCreateActiveTrainingBlockMutation();
 
   const benchmarkCount = benchmarksQuery.data?.length ?? 0;
   const hasRequiredBenchmarks = benchmarkCount >= requiredBenchmarkCount;
+  const savedSchedulingPreferences = schedulingPreferencesQuery.data;
+  const hasSavedSchedulingPreferences = savedSchedulingPreferences !== null && savedSchedulingPreferences !== undefined;
+  const generationReady = hasRequiredBenchmarks && hasSavedSchedulingPreferences;
   const activePlan = activeTrainingBlockQuery.data;
   const nextSession = activePlan?.sessions[0];
+  const savedWeekdayLabel =
+    savedSchedulingPreferences?.selectedTrainingWeekdays
+      .map((weekday) => formatTrainingWeekday(weekday))
+      .filter((label): label is string => label !== null)
+      .join(", ") ?? null;
 
   const handleGenerate = async () => {
-    if (!hasRequiredBenchmarks) {
+    if (!generationReady) {
       return;
     }
 
@@ -43,10 +54,18 @@ export const BlockGenerationCard = () => {
         </Text>
       </View>
       <Text style={styles.status}>
-        {hasRequiredBenchmarks
+        {generationReady
           ? `${benchmarkCount} saved benchmarks are ready for generation.`
-          : `Save all ${requiredBenchmarkCount} benchmarks before generating a block.`}
+          : !hasRequiredBenchmarks
+            ? `Save all ${requiredBenchmarkCount} benchmarks before generating a block.`
+            : "Save a valid training schedule before generating a block."}
       </Text>
+      {hasSavedSchedulingPreferences ? (
+        <Text style={styles.status}>
+          Schedule: {savedSchedulingPreferences.trainingDaysPerWeek} days per week on{" "}
+          {savedWeekdayLabel ?? "saved weekdays"}.
+        </Text>
+      ) : null}
       {activePlan !== null && activePlan !== undefined ? (
         <View style={styles.activePlanSummary}>
           <Text style={styles.activePlanLabel}>Current active block</Text>
@@ -64,7 +83,7 @@ export const BlockGenerationCard = () => {
         </Text>
       ) : null}
       <Button
-        disabled={!hasRequiredBenchmarks || createActiveTrainingBlockMutation.isPending}
+        disabled={!generationReady || createActiveTrainingBlockMutation.isPending}
         label={
           createActiveTrainingBlockMutation.isPending
             ? "Generating active block..."

@@ -191,6 +191,32 @@ export const migrations: readonly Migration[] = [
       `,
     ],
   },
+  {
+    version: 3,
+    name: "block-scheduling-preferences-and-session-weekdays",
+    statements: [
+      `
+        CREATE TABLE IF NOT EXISTS block_setup_preferences (
+          id TEXT PRIMARY KEY NOT NULL,
+          training_days_per_week INTEGER NOT NULL,
+          selected_training_weekdays TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN training_days_per_week INTEGER;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN selected_training_weekdays TEXT;
+      `,
+      `
+        ALTER TABLE planned_sessions
+        ADD COLUMN scheduled_weekday TEXT;
+      `,
+    ],
+  },
 ] as const;
 
 export const latestSchemaVersion = migrations.at(-1)?.version ?? 0;

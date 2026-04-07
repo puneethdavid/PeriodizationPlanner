@@ -14,6 +14,8 @@ import {
 import { usePlannedSessionDetailQuery } from "@/features/training-blocks/queries/usePlannedSessionDetailQuery";
 import { useQuickCompleteSessionMutation } from "@/features/training-blocks/queries/useQuickCompleteSessionMutation";
 import { useSaveAdjustedSessionResultsMutation } from "@/features/training-blocks/queries/useSaveAdjustedSessionResultsMutation";
+import { formatTrainingWeekday } from "@/features/training-blocks/services/blockSchedulingService";
+import { getSessionKindLabel, getSessionStatusLabel } from "@/features/training-blocks/services/sessionPresentation";
 import { appTheme } from "@/theme/appTheme";
 
 const WorkoutDetailScreen = () => {
@@ -77,6 +79,7 @@ const WorkoutDetailScreen = () => {
   const plannedSession = plannedSessionQuery.data;
   const isCompleted = plannedSession.status === "completed";
   const isBenchmarkSession = plannedSession.sessionType === "benchmark";
+  const scheduledWeekdayLabel = formatTrainingWeekday(plannedSession.scheduledWeekday);
 
   const updateAdjustedValue = (
     plannedSetId: string,
@@ -151,22 +154,29 @@ const WorkoutDetailScreen = () => {
           </Text>
           <Text style={styles.headerDescription}>
             Session #{plannedSession.sessionIndex} for week {plannedSession.weekIndex}, scheduled on{" "}
-            {plannedSession.scheduledDate}.
+            {plannedSession.scheduledDate}
+            {scheduledWeekdayLabel === null ? "." : ` (${scheduledWeekdayLabel}).`}
           </Text>
         </View>
         <View style={styles.badgeRow}>
           <View style={styles.badge}>
-            <Text style={styles.badgeLabel}>Type</Text>
-            <Text style={styles.badgeValue}>{plannedSession.sessionType}</Text>
+            <Text style={styles.badgeLabel}>Kind</Text>
+            <Text style={styles.badgeValue}>{getSessionKindLabel(plannedSession)}</Text>
           </View>
           <View style={styles.badge}>
             <Text style={styles.badgeLabel}>Status</Text>
-            <Text style={styles.badgeValue}>{plannedSession.status}</Text>
+            <Text style={styles.badgeValue}>{getSessionStatusLabel(plannedSession)}</Text>
           </View>
           <View style={styles.badge}>
             <Text style={styles.badgeLabel}>Exercises</Text>
             <Text style={styles.badgeValue}>{plannedSession.plannedExercises.length}</Text>
           </View>
+          {scheduledWeekdayLabel !== null ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeLabel}>Weekday</Text>
+              <Text style={styles.badgeValue}>{scheduledWeekdayLabel}</Text>
+            </View>
+          ) : null}
         </View>
       </Card>
 
@@ -340,6 +350,13 @@ const WorkoutDetailScreen = () => {
           label="Back to Today"
           onPress={() => {
             router.push("/(tabs)/today");
+          }}
+          variant="secondary"
+        />
+        <Button
+          label="Back to full plan"
+          onPress={() => {
+            router.push("/plan");
           }}
           variant="secondary"
         />

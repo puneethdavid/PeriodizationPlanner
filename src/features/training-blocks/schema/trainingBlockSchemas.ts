@@ -10,6 +10,7 @@ const isoDateSchema = z.iso.date();
 const isoDateTimeSchema = z.iso.datetime();
 const positiveIntegerSchema = z.number().int().positive();
 const nonNegativeNumberSchema = z.number().nonnegative();
+const weekdayCountSchema = z.number().int().min(1).max(7);
 
 export const liftSlugSchema = z.enum([
   "back-squat",
@@ -26,6 +27,15 @@ export const benchmarkTypeSchema = z.enum([
 ]);
 
 export const loadUnitSchema = z.enum(["kg", "lb"]);
+export const trainingWeekdaySchema = z.enum([
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+]);
 
 export const trainingBlockStatusSchema = z.enum(["draft", "active", "completed", "archived"]);
 export const sessionTypeSchema = z.enum(["primary", "secondary", "deload", "benchmark"]);
@@ -61,6 +71,31 @@ export const benchmarkSchema = benchmarkInputSchema.extend({
   updatedAt: isoDateTimeSchema,
 });
 
+export const selectedTrainingWeekdaysSchema = z
+  .array(trainingWeekdaySchema)
+  .min(1)
+  .max(7)
+  .refine((weekdays) => new Set(weekdays).size === weekdays.length, {
+    message: "Selected training weekdays must not contain duplicates.",
+  });
+
+export const blockSchedulingPreferencesSchema = z.object({
+  trainingDaysPerWeek: weekdayCountSchema,
+  selectedTrainingWeekdays: selectedTrainingWeekdaysSchema,
+});
+
+export const validatedBlockSchedulingPreferencesSchema = blockSchedulingPreferencesSchema.superRefine(
+  (value, context) => {
+    if (value.selectedTrainingWeekdays.length !== value.trainingDaysPerWeek) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["selectedTrainingWeekdays"],
+        message: "Select the same number of weekdays as the weekly training frequency.",
+      });
+    }
+  },
+);
+
 export const benchmarkSnapshotItemSchema = z.object({
   id: nonEmptyStringSchema,
   snapshotId: nonEmptyStringSchema,
@@ -91,6 +126,7 @@ export const trainingBlockSchema = z.object({
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
   notes: optionalNullableStringSchema,
+  schedulingPreferences: blockSchedulingPreferencesSchema.nullable().default(null),
 });
 
 export const blockRevisionSchema = z.object({
@@ -130,6 +166,7 @@ export const plannedSessionSchema = z.object({
   blockId: nonEmptyStringSchema,
   blockRevisionId: nonEmptyStringSchema,
   scheduledDate: isoDateSchema,
+  scheduledWeekday: trainingWeekdaySchema.nullable().default(null),
   sessionIndex: positiveIntegerSchema,
   weekIndex: positiveIntegerSchema,
   sessionType: sessionTypeSchema,
@@ -185,6 +222,11 @@ export const generatedTrainingPlanSchema = z.object({
 
 export type BenchmarkInput = z.infer<typeof benchmarkInputSchema>;
 export type Benchmark = z.infer<typeof benchmarkSchema>;
+export type TrainingWeekday = z.infer<typeof trainingWeekdaySchema>;
+export type BlockSchedulingPreferences = z.infer<typeof blockSchedulingPreferencesSchema>;
+export type ValidatedBlockSchedulingPreferences = z.infer<
+  typeof validatedBlockSchedulingPreferencesSchema
+>;
 export type BenchmarkSnapshotItem = z.infer<typeof benchmarkSnapshotItemSchema>;
 export type BenchmarkSnapshot = z.infer<typeof benchmarkSnapshotSchema>;
 export type TrainingBlock = z.infer<typeof trainingBlockSchema>;

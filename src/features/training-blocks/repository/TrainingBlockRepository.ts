@@ -7,6 +7,7 @@ import {
   benchmarkInputSchema,
   benchmarkSchema,
   blockRevisionSchema,
+  blockSchedulingPreferencesSchema,
   generatedTrainingPlanSchema,
   plannedExerciseSchema,
   plannedSessionSchema,
@@ -14,6 +15,7 @@ import {
   trainingBlockSchema,
   type Benchmark,
   type BenchmarkInput,
+  type BlockSchedulingPreferences,
   type BlockRevision,
   type GeneratedTrainingPlan,
   type PlannedExercise,
@@ -25,6 +27,11 @@ import {
   generateFixedTrainingBlock,
   type FixedBlockGeneratorOptions,
 } from "@/features/training-blocks/services/fixedBlockGenerator";
+import {
+  parseSerializedTrainingWeekdays,
+  serializeTrainingWeekdays,
+  validateBlockSchedulingPreferences,
+} from "@/features/training-blocks/services/blockSchedulingService";
 
 type BenchmarkRow = {
   id: string;
@@ -48,6 +55,8 @@ type TrainingBlockRow = {
   benchmark_snapshot_id: string;
   generation_version: string;
   notes: string | null;
+  training_days_per_week: number | null;
+  selected_training_weekdays: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -66,11 +75,19 @@ type PlannedSessionRow = {
   block_id: string;
   block_revision_id: string;
   scheduled_date: string;
+  scheduled_weekday: PlannedSession["scheduledWeekday"];
   session_index: number;
   week_index: number;
   session_type: PlannedSession["sessionType"];
   title: string;
   status: PlannedSession["status"];
+};
+
+type BlockSetupPreferencesRow = {
+  id: string;
+  training_days_per_week: number;
+  selected_training_weekdays: string;
+  updated_at: string;
 };
 
 type PlannedExerciseRow = {
@@ -145,6 +162,19 @@ const mapTrainingBlockRow = (row: TrainingBlockRow): TrainingBlock =>
       benchmarkSnapshotId: row.benchmark_snapshot_id,
       generationVersion: row.generation_version,
       notes: row.notes,
+      schedulingPreferences:
+        row.training_days_per_week === null || row.selected_training_weekdays === null
+          ? null
+          : parseWithSchema(
+              blockSchedulingPreferencesSchema,
+              {
+                trainingDaysPerWeek: row.training_days_per_week,
+                selectedTrainingWeekdays: parseSerializedTrainingWeekdays(
+                  row.selected_training_weekdays,
+                ),
+              },
+              "training-blocks.block-scheduling-preferences-row",
+            ),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     },
@@ -212,6 +242,7 @@ const mapPlannedSessionRow = (
       blockId: row.block_id,
       blockRevisionId: row.block_revision_id,
       scheduledDate: row.scheduled_date,
+      scheduledWeekday: row.scheduled_weekday,
       sessionIndex: row.session_index,
       weekIndex: row.week_index,
       sessionType: row.session_type,
@@ -244,8 +275,65 @@ export class TrainingBlockRepository extends BaseRepository {
         DELETE FROM benchmark_snapshot_items;
         DELETE FROM benchmark_snapshots;
         DELETE FROM benchmarks;
+        DELETE FROM block_setup_preferences;
       `);
     });
+  }
+
+  async getBlockSchedulingPreferencesAsync(): Promise<BlockSchedulingPreferences | null> {
+    const row = await this.database.getFirstAsync<BlockSetupPreferencesRow>(
+      `
+        SELECT
+          id,
+          training_days_per_week,
+          selected_training_weekdays,
+          updated_at
+        FROM block_setup_preferences
+        WHERE id = 'current'
+        LIMIT 1
+      `,
+    );
+
+    if (row === null) {
+      return null;
+    }
+
+    return parseWithSchema(
+      blockSchedulingPreferencesSchema,
+      {
+        trainingDaysPerWeek: row.training_days_per_week,
+        selectedTrainingWeekdays: parseSerializedTrainingWeekdays(row.selected_training_weekdays),
+      },
+      "training-blocks.block-setup-preferences",
+    );
+  }
+
+  async saveBlockSchedulingPreferencesAsync(
+    input: BlockSchedulingPreferences,
+  ): Promise<BlockSchedulingPreferences> {
+    const validatedPreferences = validateBlockSchedulingPreferences(input);
+    const updatedAt = new Date().toISOString();
+
+    await this.database.runAsync(
+      `
+        INSERT INTO block_setup_preferences (
+          id,
+          training_days_per_week,
+          selected_training_weekdays,
+          updated_at
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          training_days_per_week = excluded.training_days_per_week,
+          selected_training_weekdays = excluded.selected_training_weekdays,
+          updated_at = excluded.updated_at
+      `,
+      "current",
+      validatedPreferences.trainingDaysPerWeek,
+      serializeTrainingWeekdays(validatedPreferences.selectedTrainingWeekdays),
+      updatedAt,
+    );
+
+    return validatedPreferences;
   }
 
   private async persistGeneratedTrainingPlanWithDatabaseAsync(
@@ -318,9 +406,11 @@ export class TrainingBlockRepository extends BaseRepository {
           benchmark_snapshot_id,
           generation_version,
           notes,
+          training_days_per_week,
+          selected_training_weekdays,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       plan.block.id,
       plan.block.name,
@@ -331,6 +421,10 @@ export class TrainingBlockRepository extends BaseRepository {
       plan.block.benchmarkSnapshotId,
       plan.block.generationVersion,
       plan.block.notes ?? null,
+      plan.block.schedulingPreferences?.trainingDaysPerWeek ?? null,
+      plan.block.schedulingPreferences === null
+        ? null
+        : serializeTrainingWeekdays(plan.block.schedulingPreferences.selectedTrainingWeekdays),
       plan.block.createdAt,
       plan.block.updatedAt,
     );
@@ -362,17 +456,19 @@ export class TrainingBlockRepository extends BaseRepository {
             block_id,
             block_revision_id,
             scheduled_date,
+            scheduled_weekday,
             session_index,
             week_index,
             session_type,
             title,
             status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         session.id,
         session.blockId,
         session.blockRevisionId,
         session.scheduledDate,
+        session.scheduledWeekday,
         session.sessionIndex,
         session.weekIndex,
         session.sessionType,
@@ -583,6 +679,7 @@ export class TrainingBlockRepository extends BaseRepository {
     options: FixedBlockGeneratorOptions,
   ): Promise<GeneratedTrainingPlan> {
     const benchmarks = await this.getLatestBenchmarksAsync();
+    const schedulingPreferences = await this.getRequiredBlockSchedulingPreferencesAsync();
 
     if (benchmarks.length === 0) {
       throw new Error(
@@ -590,7 +687,10 @@ export class TrainingBlockRepository extends BaseRepository {
       );
     }
 
-    const plan = generateFixedTrainingBlock(benchmarks, options);
+    const plan = generateFixedTrainingBlock(benchmarks, {
+      ...options,
+      schedulingPreferences,
+    });
     return this.persistGeneratedTrainingPlanAsync(plan, benchmarks);
   }
 
@@ -598,6 +698,7 @@ export class TrainingBlockRepository extends BaseRepository {
     options: FixedBlockGeneratorOptions,
   ): Promise<GeneratedTrainingPlan> {
     const benchmarks = await this.getLatestBenchmarksAsync();
+    const schedulingPreferences = await this.getRequiredBlockSchedulingPreferencesAsync();
 
     if (benchmarks.length === 0) {
       throw new Error(
@@ -605,7 +706,10 @@ export class TrainingBlockRepository extends BaseRepository {
       );
     }
 
-    const generatedPlan = generateFixedTrainingBlock(benchmarks, options);
+    const generatedPlan = generateFixedTrainingBlock(benchmarks, {
+      ...options,
+      schedulingPreferences,
+    });
     const activatedAt = new Date().toISOString();
     const activePlan = parseWithSchema(
       generatedTrainingPlanSchema,
@@ -641,6 +745,18 @@ export class TrainingBlockRepository extends BaseRepository {
     return activePlan;
   }
 
+  private async getRequiredBlockSchedulingPreferencesAsync(): Promise<BlockSchedulingPreferences> {
+    const schedulingPreferences = await this.getBlockSchedulingPreferencesAsync();
+
+    if (schedulingPreferences === null) {
+      throw new Error(
+        "[training-blocks] Save a valid training schedule before generating an active block.",
+      );
+    }
+
+    return validateBlockSchedulingPreferences(schedulingPreferences);
+  }
+
   async persistGeneratedTrainingPlanAsync(
     input: GeneratedTrainingPlan,
     sourceBenchmarks: readonly Benchmark[],
@@ -670,6 +786,8 @@ export class TrainingBlockRepository extends BaseRepository {
           benchmark_snapshot_id,
           generation_version,
           notes,
+          training_days_per_week,
+          selected_training_weekdays,
           created_at,
           updated_at
         FROM training_blocks
@@ -715,6 +833,7 @@ export class TrainingBlockRepository extends BaseRepository {
           block_id,
           block_revision_id,
           scheduled_date,
+          scheduled_weekday,
           session_index,
           week_index,
           session_type,
@@ -797,6 +916,7 @@ export class TrainingBlockRepository extends BaseRepository {
           block_id,
           block_revision_id,
           scheduled_date,
+          scheduled_weekday,
           session_index,
           week_index,
           session_type,

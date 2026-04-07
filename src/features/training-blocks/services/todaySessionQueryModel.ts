@@ -8,6 +8,7 @@ type TodaySessionReadyState = {
   sessionId: string;
   sessionTitle: string;
   scheduledDate: string;
+  scheduledWeekday: PlannedSession["scheduledWeekday"];
   sessionType: PlannedSession["sessionType"];
   sessionIndex: number;
   exerciseCount: number;
@@ -72,6 +73,7 @@ export const buildTodaySessionQueryModel = (
     sessionId: currentSession.id,
     sessionTitle: currentSession.title,
     scheduledDate: currentSession.scheduledDate,
+    scheduledWeekday: currentSession.scheduledWeekday,
     sessionType: currentSession.sessionType,
     sessionIndex: currentSession.sessionIndex,
     exerciseCount: currentSession.plannedExercises.length,

@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, EmptyState, ListRow, LoadingState, ScreenContainer } from "@/components/ui";
 import { useTodaySessionQuery } from "@/features/training-blocks/queries/useTodaySessionQuery";
+import { formatTrainingWeekday } from "@/features/training-blocks/services/blockSchedulingService";
 import { appTheme } from "@/theme/appTheme";
 
 const TodayScreen = () => {
@@ -27,6 +28,10 @@ const TodayScreen = () => {
   }
 
   const todaySession = todaySessionQuery.data;
+  const scheduledWeekdayLabel =
+    todaySession !== undefined && todaySession.state === "ready"
+      ? formatTrainingWeekday(todaySession.scheduledWeekday)
+      : null;
 
   return (
     <ScreenContainer
@@ -71,7 +76,10 @@ const TodayScreen = () => {
             <View style={styles.pillRow}>
               <View style={styles.pill}>
                 <Text style={styles.pillLabel}>Date</Text>
-                <Text style={styles.pillValue}>{todaySession.scheduledDate}</Text>
+                <Text style={styles.pillValue}>
+                  {todaySession.scheduledDate}
+                  {scheduledWeekdayLabel === null ? "" : ` • ${scheduledWeekdayLabel}`}
+                </Text>
               </View>
               <View style={styles.pill}>
                 <Text style={styles.pillLabel}>Type</Text>
@@ -92,6 +100,13 @@ const TodayScreen = () => {
                   },
                 });
               }}
+            />
+            <Button
+              label="Open full block plan"
+              onPress={() => {
+                router.push("/plan");
+              }}
+              variant="secondary"
             />
           </Card>
           <Card>

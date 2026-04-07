@@ -36,6 +36,9 @@ export const useSaveAdjustedSessionResultsMutation = (sessionId: string | null) 
           queryKey: queryKeys.workouts.detail(sessionId),
         }),
         queryClient.invalidateQueries({
+          queryKey: queryKeys.trainingBlocks.overview(),
+        }),
+        queryClient.invalidateQueries({
           queryKey: queryKeys.today.activeSession(),
         }),
         queryClient.invalidateQueries({
