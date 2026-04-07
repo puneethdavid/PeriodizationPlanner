@@ -4,11 +4,13 @@ import { Button, Card, ListRow, ScreenContainer } from "@/components/ui";
 import { runtimeConfig } from "@/config/runtimeConfig";
 import { useAppDatabase } from "@/database/AppDatabaseProvider";
 import { useDatabaseSummaryQuery } from "@/features/app-shell/queries/useDatabaseSummaryQuery";
+import { useResetTrainingDataMutation } from "@/features/training-blocks/queries/useResetTrainingDataMutation";
 import { appTheme } from "@/theme/appTheme";
 
 const SettingsScreen = () => {
   const { schemaVersion } = useAppDatabase();
   const databaseSummaryQuery = useDatabaseSummaryQuery();
+  const resetTrainingDataMutation = useResetTrainingDataMutation();
 
   return (
     <ScreenContainer
@@ -55,6 +57,47 @@ const SettingsScreen = () => {
         </Text>
         <Button label="Review sync readiness" variant="secondary" />
       </Card>
+      {__DEV__ ? (
+        <Card>
+          <View style={{ gap: 12 }}>
+            <View style={{ gap: 4 }}>
+              <Text style={{ color: appTheme.colors.textPrimary, fontSize: 18, fontWeight: "700" }}>
+                Developer reset
+              </Text>
+              <Text style={{ color: appTheme.colors.textSecondary, lineHeight: 22 }}>
+                Clears saved benchmarks, generated blocks, workout results, and local history while
+                keeping the database schema in place.
+              </Text>
+            </View>
+            <Button
+              disabled={resetTrainingDataMutation.isPending}
+              label={
+                resetTrainingDataMutation.isPending
+                  ? "Resetting local training data..."
+                  : "Reset local training data"
+              }
+              onPress={() => {
+                resetTrainingDataMutation.reset();
+                resetTrainingDataMutation.mutate();
+              }}
+              variant="secondary"
+            />
+            {resetTrainingDataMutation.isSuccess ? (
+              <Text style={{ color: appTheme.colors.textSecondary }}>
+                Local training data cleared. You can save fresh benchmarks and generate a new block
+                now.
+              </Text>
+            ) : null}
+            {resetTrainingDataMutation.isError ? (
+              <Text style={{ color: appTheme.colors.textSecondary }}>
+                {resetTrainingDataMutation.error instanceof Error
+                  ? resetTrainingDataMutation.error.message
+                  : "Reset failed. Please try again."}
+              </Text>
+            ) : null}
+          </View>
+        </Card>
+      ) : null}
     </ScreenContainer>
   );
 };

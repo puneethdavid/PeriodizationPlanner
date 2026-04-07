@@ -222,6 +222,8 @@ const mapPlannedSessionRow = (
     "training-blocks.planned-session-row",
   );
 
+const makeSqlPlaceholders = (count: number): string => Array.from({ length: count }, () => "?").join(", ");
+
 export class TrainingBlockRepository extends BaseRepository {
   constructor(context: RepositoryContext) {
     super(context);
@@ -254,12 +256,22 @@ export class TrainingBlockRepository extends BaseRepository {
     const normalizedBenchmarks = sourceBenchmarks.map((benchmark) =>
       parseWithSchema(benchmarkSchema, benchmark, "training-blocks.persist-benchmark"),
     );
-
-    await database.runAsync("DELETE FROM training_blocks WHERE id = ?", plan.block.id);
-    await database.runAsync(
-      "DELETE FROM benchmark_snapshots WHERE id = ?",
-      plan.block.benchmarkSnapshotId,
+    const sessionIds = plan.sessions.map((session) => session.id);
+    const exerciseIds = plan.sessions.flatMap((session) =>
+      session.plannedExercises.map((exercise) => exercise.id),
     );
+    const plannedSetIds = plan.sessions.flatMap((session) =>
+      session.plannedExercises.flatMap((exercise) => exercise.plannedSets.map((plannedSet) => plannedSet.id)),
+    );
+
+    await this.deletePersistedPlanGraphAsync(database, {
+      blockId: plan.block.id,
+      benchmarkSnapshotId: plan.block.benchmarkSnapshotId,
+      revisionId: plan.revision.id,
+      sessionIds,
+      exerciseIds,
+      plannedSetIds,
+    });
 
     await database.runAsync(
       "INSERT INTO benchmark_snapshots (id, created_at) VALUES (?, ?)",
@@ -420,6 +432,65 @@ export class TrainingBlockRepository extends BaseRepository {
     }
 
     return plan;
+  }
+
+  private async deletePersistedPlanGraphAsync(
+    database: SQLiteDatabase,
+    input: {
+      blockId: string;
+      benchmarkSnapshotId: string;
+      revisionId: string;
+      sessionIds: readonly string[];
+      exerciseIds: readonly string[];
+      plannedSetIds: readonly string[];
+    },
+  ): Promise<void> {
+    if (input.plannedSetIds.length > 0) {
+      const placeholders = makeSqlPlaceholders(input.plannedSetIds.length);
+      await database.runAsync(
+        `DELETE FROM logged_set_results WHERE planned_set_id IN (${placeholders})`,
+        ...input.plannedSetIds,
+      );
+    }
+
+    if (input.sessionIds.length > 0) {
+      const placeholders = makeSqlPlaceholders(input.sessionIds.length);
+      await database.runAsync(
+        `DELETE FROM workout_results WHERE session_id IN (${placeholders})`,
+        ...input.sessionIds,
+      );
+      await database.runAsync(
+        `DELETE FROM planned_sessions WHERE id IN (${placeholders})`,
+        ...input.sessionIds,
+      );
+    }
+
+    if (input.exerciseIds.length > 0) {
+      const placeholders = makeSqlPlaceholders(input.exerciseIds.length);
+      await database.runAsync(
+        `DELETE FROM planned_exercises WHERE id IN (${placeholders})`,
+        ...input.exerciseIds,
+      );
+    }
+
+    if (input.plannedSetIds.length > 0) {
+      const placeholders = makeSqlPlaceholders(input.plannedSetIds.length);
+      await database.runAsync(
+        `DELETE FROM planned_sets WHERE id IN (${placeholders})`,
+        ...input.plannedSetIds,
+      );
+    }
+
+    await database.runAsync("DELETE FROM block_revisions WHERE id = ?", input.revisionId);
+    await database.runAsync("DELETE FROM training_blocks WHERE id = ?", input.blockId);
+    await database.runAsync(
+      "DELETE FROM benchmark_snapshot_items WHERE snapshot_id = ?",
+      input.benchmarkSnapshotId,
+    );
+    await database.runAsync(
+      "DELETE FROM benchmark_snapshots WHERE id = ?",
+      input.benchmarkSnapshotId,
+    );
   }
 
   async saveBenchmarksAsync(inputs: readonly BenchmarkInput[]): Promise<readonly Benchmark[]> {

@@ -6,7 +6,7 @@ import {
   type BenchmarkInput,
   type GeneratedTrainingPlan,
 } from "@/features/training-blocks/schema/trainingBlockSchemas";
-import { deriveTrainingMaxes } from "@/features/training-blocks/services/trainingMaxService";
+import { deriveTrainingMaxes, roundToLoadIncrement } from "@/features/training-blocks/services/trainingMaxService";
 
 type FixedBlockGeneratorOptions = {
   startDate: string;
@@ -164,9 +164,12 @@ export const generateFixedTrainingBlock = (
       const sessionIndex = weekIndex * weeklySessions.length + sessionOffset + 1;
       const sessionId = makeStableId("session", planKey, String(sessionIndex));
       const plannedExerciseId = makeStableId("exercise", sessionId, "1");
-      const roundedLoad = Number(
-        (sessionDefinition.trainingMax.trainingMax * sessionDefinition.intensity).toFixed(2),
-      );
+      const roundedLoad = 
+        roundToLoadIncrement(
+          Number(
+            (sessionDefinition.trainingMax.trainingMax * sessionDefinition.intensity).toFixed(2)
+          ), sessionDefinition.trainingMax.sourceUnit
+        );
 
       return {
         id: sessionId,

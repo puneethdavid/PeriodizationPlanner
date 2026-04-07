@@ -23,7 +23,7 @@ const benchmarkMultiplierByType: Record<Benchmark["benchmarkType"], number> = {
 };
 
 const roundToNearestLoadIncrement = (value: number, unit: Benchmark["unit"]): number => {
-  const increment = unit === "kg" ? 2.5 : 5;
+  const increment = unit === "kg" ? 0.5 : 1.25;
   return Number((Math.round(value / increment) * increment).toFixed(2));
 };
 
@@ -49,6 +49,10 @@ export const deriveTrainingMaxFromBenchmark = (input: BenchmarkInput): TrainingM
 
 export const deriveTrainingMaxes = (inputs: readonly BenchmarkInput[]): readonly TrainingMax[] => {
   return inputs.map((input) => deriveTrainingMaxFromBenchmark(input));
+};
+
+export const roundToLoadIncrement = (value: number, unit: Benchmark["unit"]): number => {
+  return roundToNearestLoadIncrement(value, unit);
 };
 
 export type { TrainingMax };
