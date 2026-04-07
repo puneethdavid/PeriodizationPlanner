@@ -2,18 +2,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useAppDatabase } from "@/database/AppDatabaseProvider";
 import { TrainingBlockRepository } from "@/features/training-blocks/repository/TrainingBlockRepository";
-import type { BlockSchedulingPreferences } from "@/features/training-blocks/schema/trainingBlockSchemas";
+import type { BlockConfiguration } from "@/features/training-blocks/schema/trainingBlockSchemas";
 import { queryKeys } from "@/query/queryKeys";
 
-export const useSaveBlockSchedulingPreferencesMutation = () => {
+export const useSaveBlockConfigurationMutation = () => {
   const { repositoryContext } = useAppDatabase();
   const queryClient = useQueryClient();
   const repository = new TrainingBlockRepository(repositoryContext);
 
   return useMutation({
-    mutationFn: async (input: BlockSchedulingPreferences) => {
-      return repository.saveBlockSchedulingPreferencesAsync(input);
-    },
+    mutationFn: async (input: BlockConfiguration) => repository.saveBlockConfigurationAsync(input),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -21,9 +19,6 @@ export const useSaveBlockSchedulingPreferencesMutation = () => {
         }),
         queryClient.invalidateQueries({
           queryKey: queryKeys.trainingBlocks.setupPreferences(),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.trainingBlocks.activePlan(),
         }),
       ]);
     },

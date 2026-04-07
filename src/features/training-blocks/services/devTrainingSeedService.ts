@@ -2,7 +2,7 @@ import type { TrainingBlockRepository } from "@/features/training-blocks/reposit
 import type { GeneratedTrainingPlan } from "@/features/training-blocks/schema/trainingBlockSchemas";
 
 import { starterBenchmarkFixture } from "@/features/training-blocks/fixtures/trainingFixtures";
-import { createDefaultBlockSchedulingPreferences } from "@/features/training-blocks/services/blockSchedulingService";
+import { createDefaultBlockConfiguration } from "@/features/training-blocks/services/blockConfigurationService";
 import { TrainingBlockCreationService } from "@/features/training-blocks/services/trainingBlockCreationService";
 
 const assertDevelopmentOnly = (): void => {
@@ -22,9 +22,7 @@ export class DevTrainingSeedService {
     assertDevelopmentOnly();
 
     await this.repository.resetTrainingBlockDataAsync();
-    await this.repository.saveBlockSchedulingPreferencesAsync(
-      createDefaultBlockSchedulingPreferences(),
-    );
+    await this.repository.saveBlockConfigurationAsync(createDefaultBlockConfiguration());
     await this.repository.saveBenchmarksAsync(starterBenchmarkFixture);
 
     return this.creationService.createActiveTrainingBlockAsync({

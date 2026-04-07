@@ -1,12 +1,16 @@
 import { useRouter } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 
 import { Button, Card } from "@/components/ui";
 import { useActiveTrainingBlockQuery } from "@/features/training-blocks/queries/useActiveTrainingBlockQuery";
 import { useBenchmarksQuery } from "@/features/training-blocks/queries/useBenchmarksQuery";
-import { useBlockSchedulingPreferencesQuery } from "@/features/training-blocks/queries/useBlockSchedulingPreferencesQuery";
+import { useBlockConfigurationQuery } from "@/features/training-blocks/queries/useBlockConfigurationQuery";
 import { useCreateActiveTrainingBlockMutation } from "@/features/training-blocks/queries/useCreateActiveTrainingBlockMutation";
-import { formatTrainingWeekday } from "@/features/training-blocks/services/blockSchedulingService";
+import {
+  doesConfigurationRequireRegeneration,
+  regenerationRules,
+} from "@/features/training-blocks/services/blockRegenerationService";
+import { summarizeBlockConfiguration } from "@/features/training-blocks/services/blockConfigurationService";
 import { appTheme } from "@/theme/appTheme";
 
 const requiredBenchmarkCount = 4;
@@ -14,24 +18,24 @@ const requiredBenchmarkCount = 4;
 export const BlockGenerationCard = () => {
   const router = useRouter();
   const benchmarksQuery = useBenchmarksQuery();
-  const schedulingPreferencesQuery = useBlockSchedulingPreferencesQuery();
+  const blockConfigurationQuery = useBlockConfigurationQuery();
   const activeTrainingBlockQuery = useActiveTrainingBlockQuery();
   const createActiveTrainingBlockMutation = useCreateActiveTrainingBlockMutation();
 
   const benchmarkCount = benchmarksQuery.data?.length ?? 0;
   const hasRequiredBenchmarks = benchmarkCount >= requiredBenchmarkCount;
-  const savedSchedulingPreferences = schedulingPreferencesQuery.data;
-  const hasSavedSchedulingPreferences = savedSchedulingPreferences !== null && savedSchedulingPreferences !== undefined;
-  const generationReady = hasRequiredBenchmarks && hasSavedSchedulingPreferences;
+  const savedBlockConfiguration = blockConfigurationQuery.data;
+  const hasSavedBlockConfiguration =
+    savedBlockConfiguration !== null && savedBlockConfiguration !== undefined;
+  const generationReady = hasRequiredBenchmarks && hasSavedBlockConfiguration;
   const activePlan = activeTrainingBlockQuery.data;
   const nextSession = activePlan?.sessions[0];
-  const savedWeekdayLabel =
-    savedSchedulingPreferences?.selectedTrainingWeekdays
-      .map((weekday) => formatTrainingWeekday(weekday))
-      .filter((label): label is string => label !== null)
-      .join(", ") ?? null;
+  const requiresRegeneration = doesConfigurationRequireRegeneration(
+    activePlan?.block.blockConfiguration ?? null,
+    savedBlockConfiguration ?? null,
+  );
 
-  const handleGenerate = async () => {
+  const executeGeneration = async () => {
     if (!generationReady) {
       return;
     }
@@ -42,6 +46,31 @@ export const BlockGenerationCard = () => {
     } catch {
       // The mutation state below renders the failure message.
     }
+  };
+
+  const handleGenerate = async () => {
+    if (requiresRegeneration) {
+      Alert.alert(
+        "Replace current active block?",
+        `${regenerationRules.summary}\n\n${regenerationRules.activeBlockReplacement}`,
+        [
+          {
+            style: "cancel",
+            text: "Cancel",
+          },
+          {
+            style: "destructive",
+            text: "Regenerate block",
+            onPress: () => {
+              void executeGeneration();
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    await executeGeneration();
   };
 
   return (
@@ -58,13 +87,10 @@ export const BlockGenerationCard = () => {
           ? `${benchmarkCount} saved benchmarks are ready for generation.`
           : !hasRequiredBenchmarks
             ? `Save all ${requiredBenchmarkCount} benchmarks before generating a block.`
-            : "Save a valid training schedule before generating a block."}
+            : "Save a valid block configuration before generating a block."}
       </Text>
-      {hasSavedSchedulingPreferences ? (
-        <Text style={styles.status}>
-          Schedule: {savedSchedulingPreferences.trainingDaysPerWeek} days per week on{" "}
-          {savedWeekdayLabel ?? "saved weekdays"}.
-        </Text>
+      {hasSavedBlockConfiguration ? (
+        <Text style={styles.status}>{summarizeBlockConfiguration(savedBlockConfiguration)}</Text>
       ) : null}
       {activePlan !== null && activePlan !== undefined ? (
         <View style={styles.activePlanSummary}>
@@ -73,6 +99,11 @@ export const BlockGenerationCard = () => {
           <Text style={styles.activePlanMeta}>
             Next session: {nextSession?.title ?? "No planned sessions yet"}
           </Text>
+          {requiresRegeneration ? (
+            <Text style={[styles.activePlanMeta, styles.warningText]}>
+              Saved setup changes require confirmation before the active block is replaced.
+            </Text>
+          ) : null}
         </View>
       ) : null}
       {createActiveTrainingBlockMutation.isError ? (
@@ -86,8 +117,12 @@ export const BlockGenerationCard = () => {
         disabled={!generationReady || createActiveTrainingBlockMutation.isPending}
         label={
           createActiveTrainingBlockMutation.isPending
-            ? "Generating active block..."
-            : "Generate active block"
+            ? requiresRegeneration
+              ? "Regenerating active block..."
+              : "Generating active block..."
+            : requiresRegeneration
+              ? "Regenerate active block"
+              : "Generate active block"
         }
         onPress={() => {
           void handleGenerate();
@@ -117,6 +152,9 @@ const styles = StyleSheet.create({
   },
   error: {
     color: appTheme.colors.danger,
+  },
+  warningText: {
+    color: appTheme.colors.accent,
   },
   activePlanSummary: {
     gap: appTheme.spacing.xs,

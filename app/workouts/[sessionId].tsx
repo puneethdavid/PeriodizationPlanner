@@ -79,6 +79,8 @@ const WorkoutDetailScreen = () => {
   const plannedSession = plannedSessionQuery.data;
   const isCompleted = plannedSession.status === "completed";
   const isBenchmarkSession = plannedSession.sessionType === "benchmark";
+  const isFinalTestSession = plannedSession.sessionType === "final-test";
+  const isEvaluationSession = isBenchmarkSession || isFinalTestSession;
   const scheduledWeekdayLabel = formatTrainingWeekday(plannedSession.scheduledWeekday);
 
   const updateAdjustedValue = (
@@ -133,11 +135,11 @@ const WorkoutDetailScreen = () => {
 
   return (
     <ScreenContainer
-      eyebrow={isBenchmarkSession ? "Benchmark Session" : "Workout Detail"}
+      eyebrow={isEvaluationSession ? "Evaluation Session" : "Workout Detail"}
       title={plannedSession.title}
       description={
-        isBenchmarkSession
-          ? "Benchmark and end-of-block test sessions use a dedicated capture path so the result is easy to review and save distinctly."
+        isEvaluationSession
+          ? "Benchmark and final-test sessions use a dedicated capture path so the result is easy to review and save distinctly."
           : "This screen shows the planned execution details only. Logging flows will wire in next."
       }
     >
@@ -148,6 +150,10 @@ const WorkoutDetailScreen = () => {
               ? isCompleted
                 ? "Completed benchmark session"
                 : "Benchmark test session"
+              : isFinalTestSession
+                ? isCompleted
+                  ? "Completed final test session"
+                  : "Final test session"
               : isCompleted
                 ? "Completed session"
                 : "Planned session"}
@@ -180,13 +186,15 @@ const WorkoutDetailScreen = () => {
         </View>
       </Card>
 
-      {isBenchmarkSession ? (
+      {isEvaluationSession ? (
         <Card>
-          <Text style={styles.testSessionTitle}>Benchmark capture flow</Text>
+          <Text style={styles.testSessionTitle}>
+            {isBenchmarkSession ? "Benchmark capture flow" : "Final test capture flow"}
+          </Text>
           <Text style={styles.testSessionDescription}>
-            Use this path for end-of-block testing or benchmark refresh work. The saved result stays
-            tied to the benchmark session so later benchmark updates can distinguish it from normal
-            training work.
+            Use this path for testing and benchmark refresh work. The saved result stays tied to
+            the evaluation session so later plan review can distinguish it from normal training
+            work.
           </Text>
         </Card>
       ) : null}
@@ -235,9 +243,13 @@ const WorkoutDetailScreen = () => {
               : quickCompleteSessionMutation.isPending
                 ? isBenchmarkSession
                   ? "Saving benchmark result..."
+                  : isFinalTestSession
+                    ? "Saving final test result..."
                   : "Saving completion..."
                 : isBenchmarkSession
                   ? "Save benchmark as completed"
+                  : isFinalTestSession
+                    ? "Save final test as completed"
                   : "Quick complete session"
           }
           onPress={() => {
@@ -255,9 +267,13 @@ const WorkoutDetailScreen = () => {
             isAdjustedEntryVisible
               ? isBenchmarkSession
                 ? "Hide benchmark result entry"
+                : isFinalTestSession
+                  ? "Hide final test result entry"
                 : "Hide adjusted result entry"
               : isBenchmarkSession
                 ? "Record benchmark result"
+                : isFinalTestSession
+                  ? "Record final test result"
                 : "Enter adjusted results"
           }
           onPress={() => {
@@ -275,11 +291,15 @@ const WorkoutDetailScreen = () => {
         <Card>
           <View style={styles.adjustedHeader}>
             <Text style={styles.adjustedTitle}>
-              {isBenchmarkSession ? "Benchmark result entry" : "Adjusted result entry"}
+              {isBenchmarkSession
+                ? "Benchmark result entry"
+                : isFinalTestSession
+                  ? "Final test result entry"
+                  : "Adjusted result entry"}
             </Text>
             <Text style={styles.adjustedDescription}>
-              {isBenchmarkSession
-                ? "Record the actual benchmark or test-session output so it can be identified separately from normal training execution."
+              {isEvaluationSession
+                ? "Record the actual testing output so it can be identified separately from normal training execution."
                 : "Save actual reps and load for sets that were modified, partially completed, or missed."}
             </Text>
           </View>
@@ -305,9 +325,11 @@ const WorkoutDetailScreen = () => {
                     helperText={
                       isBenchmarkSession
                         ? `Benchmark target reps: ${plannedSet.targetReps}`
+                        : isFinalTestSession
+                        ? `Benchmark target reps: ${plannedSet.targetReps}`
                         : `Default planned reps: ${plannedSet.targetReps}`
                     }
-                    label={isBenchmarkSession ? "Recorded reps" : "Actual reps"}
+                    label={isEvaluationSession ? "Recorded reps" : "Actual reps"}
                     onChangeText={(value) => {
                       updateAdjustedValue(plannedSet.id, "reps", value);
                     }}
@@ -317,9 +339,11 @@ const WorkoutDetailScreen = () => {
                     helperText={
                       isBenchmarkSession
                         ? `Benchmark target load: ${plannedSet.targetLoad} kg`
+                        : isFinalTestSession
+                        ? `Benchmark target load: ${plannedSet.targetLoad} kg`
                         : `Default planned load: ${plannedSet.targetLoad} kg`
                     }
-                    label={isBenchmarkSession ? "Recorded load" : "Actual load"}
+                    label={isEvaluationSession ? "Recorded load" : "Actual load"}
                     onChangeText={(value) => {
                       updateAdjustedValue(plannedSet.id, "load", value);
                     }}
@@ -334,9 +358,13 @@ const WorkoutDetailScreen = () => {
               saveAdjustedSessionResultsMutation.isPending
                 ? isBenchmarkSession
                   ? "Saving benchmark result..."
+                  : isFinalTestSession
+                    ? "Saving final test result..."
                   : "Saving adjusted results..."
                 : isBenchmarkSession
                   ? "Save benchmark result"
+                  : isFinalTestSession
+                    ? "Save final test result"
                   : "Save adjusted results"
             }
             onPress={() => {

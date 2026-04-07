@@ -3,9 +3,10 @@ import { parseWithSchema } from "@/schema/parseWithSchema";
 import { assertValidGeneratedTrainingPlan } from "@/features/training-blocks/domain/invariants";
 import {
   benchmarkInputSchema,
-  type BlockSchedulingPreferences,
+  type BlockConfiguration,
   type BenchmarkInput,
   type GeneratedTrainingPlan,
+  type PlannedExercise,
   type TrainingWeekday,
 } from "@/features/training-blocks/schema/trainingBlockSchemas";
 import { trainingWeekdayOrder } from "@/features/training-blocks/services/blockSchedulingService";
@@ -19,21 +20,21 @@ type FixedBlockGeneratorOptions = {
 };
 
 type FixedBlockGenerationInput = FixedBlockGeneratorOptions & {
-  schedulingPreferences: BlockSchedulingPreferences;
+  blockConfiguration: BlockConfiguration;
 };
 
-const microcyclePrescriptions = [
-  { weekIndex: 1, intensity: 0.65, sets: 5, reps: 5, sessionType: "primary" as const },
-  { weekIndex: 2, intensity: 0.7, sets: 4, reps: 4, sessionType: "primary" as const },
-  { weekIndex: 3, intensity: 0.75, sets: 5, reps: 3, sessionType: "primary" as const },
-  { weekIndex: 4, intensity: 0.6, sets: 3, reps: 5, sessionType: "deload" as const },
+const trainingWeekPrescriptions = [
+  { intensity: 0.65, sets: 5, reps: 5, sessionType: "primary" as const },
+  { intensity: 0.7, sets: 4, reps: 4, sessionType: "primary" as const },
+  { intensity: 0.75, sets: 5, reps: 3, sessionType: "primary" as const },
+  { intensity: 0.6, sets: 3, reps: 5, sessionType: "deload" as const },
 ] as const;
 
 const supportLiftPrescriptions = [
-  { weekIndex: 1, intensity: 0.6, sets: 4, reps: 6 },
-  { weekIndex: 2, intensity: 0.65, sets: 4, reps: 5 },
-  { weekIndex: 3, intensity: 0.7, sets: 5, reps: 4 },
-  { weekIndex: 4, intensity: 0.55, sets: 2, reps: 5 },
+  { intensity: 0.6, sets: 4, reps: 6 },
+  { intensity: 0.65, sets: 4, reps: 5 },
+  { intensity: 0.7, sets: 5, reps: 4 },
+  { intensity: 0.55, sets: 2, reps: 5 },
 ] as const;
 
 const liftDisplayNameBySlug = {
@@ -94,24 +95,27 @@ const makeStableId = (prefix: string, ...parts: readonly string[]): string => {
 
 const buildScheduledDates = (
   startDate: string,
-  schedulingPreferences: BlockSchedulingPreferences,
+  blockConfiguration: BlockConfiguration,
   weekCount: number,
 ): readonly { scheduledDate: string; scheduledWeekday: TrainingWeekday; weekIndex: number }[] => {
-  const selectedWeekdays = [...schedulingPreferences.selectedTrainingWeekdays].sort(
+  const selectedWeekdays = [...blockConfiguration.schedulingPreferences.selectedTrainingWeekdays].sort(
     (left, right) => trainingWeekdayOrder.indexOf(left) - trainingWeekdayOrder.indexOf(right),
   );
   const selectedWeekdaySet = new Set(selectedWeekdays);
   const scheduledDates: { scheduledDate: string; scheduledWeekday: TrainingWeekday; weekIndex: number }[] = [];
   let cursorDate = startDate;
 
-  while (scheduledDates.length < schedulingPreferences.trainingDaysPerWeek * weekCount) {
+  while (scheduledDates.length < blockConfiguration.schedulingPreferences.trainingDaysPerWeek * weekCount) {
     const weekday = getTrainingWeekdayFromIsoDate(cursorDate);
 
     if (selectedWeekdaySet.has(weekday)) {
       scheduledDates.push({
         scheduledDate: cursorDate,
         scheduledWeekday: weekday,
-        weekIndex: Math.floor(scheduledDates.length / schedulingPreferences.trainingDaysPerWeek) + 1,
+        weekIndex:
+          Math.floor(
+            scheduledDates.length / blockConfiguration.schedulingPreferences.trainingDaysPerWeek,
+          ) + 1,
       });
     }
 
@@ -143,6 +147,82 @@ const getPrimaryLiftSlug = (
   return fallbackPrimaryLiftSlug;
 };
 
+const getWeekPrescription = (weekIndex: number, durationWeeks: number) => {
+  if (weekIndex === durationWeeks) {
+    return trainingWeekPrescriptions.at(-1) ?? trainingWeekPrescriptions[0];
+  }
+
+  return trainingWeekPrescriptions[(weekIndex - 1) % 3] ?? trainingWeekPrescriptions[0];
+};
+
+const benchmarkRepsByType: Record<BenchmarkInput["benchmarkType"], number> = {
+  "one-rep-max": 1,
+  "three-rep-max": 3,
+  "five-rep-max": 5,
+  "working-weight": 5,
+};
+
+const pickUniqueLiftSequence = (
+  pool: readonly BenchmarkInput["liftSlug"][],
+  count: number,
+  startOffset: number,
+  excludedLiftSlugs: readonly BenchmarkInput["liftSlug"][] = [],
+): readonly BenchmarkInput["liftSlug"][] => {
+  const uniquePool = pool.filter((liftSlug, index) => pool.indexOf(liftSlug) === index);
+  const excluded = new Set(excludedLiftSlugs);
+  const results: BenchmarkInput["liftSlug"][] = [];
+
+  for (let offset = 0; offset < uniquePool.length && results.length < count; offset += 1) {
+    const liftSlug = uniquePool[(startOffset + offset) % uniquePool.length];
+
+    if (liftSlug === undefined || excluded.has(liftSlug) || results.includes(liftSlug)) {
+      continue;
+    }
+
+    results.push(liftSlug);
+  }
+
+  return results;
+};
+
+const createExercise = (input: {
+  planKey: string;
+  sessionId: string;
+  exerciseOrder: number;
+  liftSlug: BenchmarkInput["liftSlug"];
+  exerciseName: string;
+  prescriptionKind: PlannedExercise["prescriptionKind"];
+  sets: number;
+  reps: number;
+  targetLoad: number;
+  targetRpe: number | null;
+  restSeconds: number | null;
+  isAmrap?: boolean;
+}): PlannedExercise => {
+  const plannedExerciseId = makeStableId("exercise", input.sessionId, String(input.exerciseOrder));
+
+  return {
+    id: plannedExerciseId,
+    sessionId: input.sessionId,
+    liftSlug: input.liftSlug,
+    exerciseSlug: input.liftSlug,
+    exerciseName: input.exerciseName,
+    exerciseOrder: input.exerciseOrder,
+    prescriptionKind: input.prescriptionKind,
+    plannedSets: Array.from({ length: input.sets }, (_, setIndex) => ({
+      id: makeStableId("set", plannedExerciseId, String(setIndex + 1)),
+      plannedExerciseId,
+      setIndex: setIndex + 1,
+      targetReps: input.reps,
+      targetLoad: input.targetLoad,
+      targetRpe: input.targetRpe,
+      restSeconds: input.restSeconds,
+      tempo: null,
+      isAmrap: input.isAmrap ?? false,
+    })),
+  };
+};
+
 export const generateFixedTrainingBlock = (
   benchmarks: readonly BenchmarkInput[],
   options: FixedBlockGenerationInput,
@@ -156,10 +236,13 @@ export const generateFixedTrainingBlock = (
   const primaryLiftSlug = getPrimaryLiftSlug(normalizedBenchmarks, options.primaryLiftSlug);
   const planKey = [
     options.startDate,
-    options.goalSlug ?? "general-strength",
+    options.goalSlug ?? options.blockConfiguration.primaryGoal,
     primaryLiftSlug,
-    String(options.schedulingPreferences.trainingDaysPerWeek),
-    options.schedulingPreferences.selectedTrainingWeekdays.join(","),
+    String(options.blockConfiguration.schedulingPreferences.trainingDaysPerWeek),
+    String(options.blockConfiguration.durationWeeks),
+    options.blockConfiguration.primaryGoal,
+    options.blockConfiguration.secondaryGoal,
+    options.blockConfiguration.schedulingPreferences.selectedTrainingWeekdays.join(","),
     ...normalizedBenchmarks.map(
       (benchmark) =>
         `${benchmark.liftSlug}:${benchmark.benchmarkType}:${benchmark.value}:${benchmark.unit}`,
@@ -172,6 +255,12 @@ export const generateFixedTrainingBlock = (
   const primaryTrainingMax = trainingMaxes.find(
     (trainingMax) => trainingMax.liftSlug === primaryLiftSlug,
   );
+  const benchmarkByLiftSlug = new Map(
+    normalizedBenchmarks.map((benchmark) => [benchmark.liftSlug, benchmark] as const),
+  );
+  const trainingMaxByLiftSlug = new Map(
+    trainingMaxes.map((trainingMax) => [trainingMax.liftSlug, trainingMax] as const),
+  );
 
   if (primaryTrainingMax === undefined) {
     throw new Error(
@@ -182,44 +271,54 @@ export const generateFixedTrainingBlock = (
   const supportTrainingMaxes = trainingMaxes.filter(
     (trainingMax) => trainingMax.liftSlug !== primaryLiftSlug,
   );
-  const scheduledDates = buildScheduledDates(options.startDate, options.schedulingPreferences, microcyclePrescriptions.length);
-  const sessions = microcyclePrescriptions.flatMap((prescription, weekIndex) => {
-    const supportPrescription = supportLiftPrescriptions[weekIndex];
+  if (supportTrainingMaxes.length === 0) {
+    throw new Error("[training-blocks.generator] At least one non-primary lift is required.");
+  }
 
-    if (supportPrescription === undefined) {
-      throw new Error(
-        `[training-blocks.generator] Missing support prescription for week ${prescription.weekIndex}.`,
-      );
-    }
+  const scheduledDates = buildScheduledDates(
+    options.startDate,
+    options.blockConfiguration,
+    options.blockConfiguration.durationWeeks,
+  );
+  const lastSessionIndex = scheduledDates.length;
+  const sessions = scheduledDates.map((scheduledSlot, scheduledSlotIndex) => {
+    const sessionIndex = scheduledSlotIndex + 1;
+    const sessionId = makeStableId("session", planKey, String(sessionIndex));
+    const isBenchmarkSession = sessionIndex === 1;
+    const isFinalTestSession = sessionIndex === lastSessionIndex;
+    const weekPrescription = getWeekPrescription(
+      scheduledSlot.weekIndex,
+      options.blockConfiguration.durationWeeks,
+    );
+    const supportPrescription =
+      supportLiftPrescriptions[(scheduledSlot.weekIndex - 1) % supportLiftPrescriptions.length] ??
+      supportLiftPrescriptions[0];
 
-    return Array.from({ length: options.schedulingPreferences.trainingDaysPerWeek }, (_, sessionOffset) => {
-      const sessionIndex = weekIndex * options.schedulingPreferences.trainingDaysPerWeek + sessionOffset + 1;
-      const scheduledSlot = scheduledDates[sessionIndex - 1];
+    if (isBenchmarkSession || isFinalTestSession) {
+      const plannedExercises = options.blockConfiguration.benchmarkLiftSlugs.map(
+        (liftSlug, exerciseIndex) => {
+          const benchmark = benchmarkByLiftSlug.get(liftSlug);
 
-      if (scheduledSlot === undefined) {
-        throw new Error(`[training-blocks.generator] Missing scheduled date slot for session ${sessionIndex}.`);
-      }
+          if (benchmark === undefined) {
+            throw new Error(
+              `[training-blocks.generator] Missing saved benchmark input for ${liftSlug}.`,
+            );
+          }
 
-      const isPrimarySession = sessionOffset === 0;
-      const trainingMax = isPrimarySession
-        ? primaryTrainingMax
-        : supportTrainingMaxes[(weekIndex * Math.max(options.schedulingPreferences.trainingDaysPerWeek - 1, 1) + sessionOffset - 1) % supportTrainingMaxes.length];
-      if (trainingMax === undefined) {
-        throw new Error("[training-blocks.generator] Missing support training max for scheduled support session.");
-      }
-      const sessionType = isPrimarySession
-        ? prescription.sessionType
-        : prescription.weekIndex === 4
-          ? ("deload" as const)
-          : ("secondary" as const);
-      const sets = isPrimarySession ? prescription.sets : supportPrescription.sets;
-      const reps = isPrimarySession ? prescription.reps : supportPrescription.reps;
-      const intensity = isPrimarySession ? prescription.intensity : supportPrescription.intensity;
-      const sessionId = makeStableId("session", planKey, String(sessionIndex));
-      const plannedExerciseId = makeStableId("exercise", sessionId, "1");
-      const roundedLoad = roundToLoadIncrement(
-        Number((trainingMax.trainingMax * intensity).toFixed(2)),
-        trainingMax.sourceUnit,
+          return createExercise({
+            planKey,
+            sessionId,
+            exerciseOrder: exerciseIndex + 1,
+            liftSlug,
+            exerciseName: liftDisplayNameBySlug[liftSlug],
+            prescriptionKind: "fixed-sets",
+            sets: 1,
+            reps: benchmarkRepsByType[benchmark.benchmarkType],
+            targetLoad: roundToLoadIncrement(benchmark.value, benchmark.unit),
+            targetRpe: null,
+            restSeconds: 180,
+          });
+        },
       );
 
       return {
@@ -230,35 +329,103 @@ export const generateFixedTrainingBlock = (
         scheduledWeekday: scheduledSlot.scheduledWeekday,
         sessionIndex,
         weekIndex: scheduledSlot.weekIndex,
-        sessionType,
-        title: isPrimarySession
-          ? `${liftDisplayNameBySlug[primaryTrainingMax.liftSlug]} Primary Week ${prescription.weekIndex}`
-          : `${liftDisplayNameBySlug[trainingMax.liftSlug]} Support Week ${prescription.weekIndex}`,
+        sessionType: isBenchmarkSession ? ("benchmark" as const) : ("final-test" as const),
+        title: isBenchmarkSession
+          ? `Benchmark Session Week ${scheduledSlot.weekIndex}`
+          : `Final Test Session Week ${scheduledSlot.weekIndex}`,
         status: "planned" as const,
-        plannedExercises: [
-          {
-            id: plannedExerciseId,
-            sessionId,
-            liftSlug: trainingMax.liftSlug,
-            exerciseSlug: trainingMax.liftSlug,
-            exerciseName: liftDisplayNameBySlug[trainingMax.liftSlug],
-            exerciseOrder: 1,
-            prescriptionKind: "fixed-sets" as const,
-            plannedSets: Array.from({ length: sets }, (_, setIndex) => ({
-              id: makeStableId("set", plannedExerciseId, String(setIndex + 1)),
-              plannedExerciseId,
-              setIndex: setIndex + 1,
-              targetReps: reps,
-              targetLoad: roundedLoad,
-              targetRpe: prescription.weekIndex === 4 ? 6 : 7,
-              restSeconds: trainingMax.liftSlug === "deadlift" ? 180 : 150,
-              tempo: null,
-              isAmrap: false,
-            })),
-          },
-        ],
+        plannedExercises,
       };
-    });
+    }
+
+    const primaryLiftSlugs = pickUniqueLiftSequence(
+      options.blockConfiguration.primaryLiftPool,
+      options.blockConfiguration.primaryLiftsPerSession,
+      scheduledSlotIndex,
+    );
+    const secondaryLiftSlugs = pickUniqueLiftSequence(
+      options.blockConfiguration.secondaryLiftPool,
+      options.blockConfiguration.secondaryLiftsPerSession,
+      scheduledSlotIndex,
+      primaryLiftSlugs,
+    );
+    const leadLiftSlug = primaryLiftSlugs[0] ?? primaryLiftSlug;
+    const sessionType =
+      scheduledSlot.weekIndex === options.blockConfiguration.durationWeeks
+        ? ("deload" as const)
+        : scheduledSlotIndex % options.blockConfiguration.schedulingPreferences.trainingDaysPerWeek ===
+            0
+          ? ("primary" as const)
+          : ("secondary" as const);
+    const plannedExercises = [
+      ...primaryLiftSlugs.map((liftSlug, exerciseIndex) => {
+        const trainingMax = trainingMaxByLiftSlug.get(liftSlug);
+
+        if (trainingMax === undefined) {
+          throw new Error(`[training-blocks.generator] Missing training max for ${liftSlug}.`);
+        }
+
+        return createExercise({
+          planKey,
+          sessionId,
+          exerciseOrder: exerciseIndex + 1,
+          liftSlug,
+          exerciseName: liftDisplayNameBySlug[liftSlug],
+          prescriptionKind: "fixed-sets",
+          sets: weekPrescription.sets,
+          reps: weekPrescription.reps,
+          targetLoad: roundToLoadIncrement(
+            Number((trainingMax.trainingMax * weekPrescription.intensity).toFixed(2)),
+            trainingMax.sourceUnit,
+          ),
+          targetRpe: scheduledSlot.weekIndex === options.blockConfiguration.durationWeeks ? 6 : 7,
+          restSeconds: liftSlug === "deadlift" ? 180 : 150,
+        });
+      }),
+      ...secondaryLiftSlugs.map((liftSlug, exerciseIndex) => {
+        const trainingMax = trainingMaxByLiftSlug.get(liftSlug);
+
+        if (trainingMax === undefined) {
+          throw new Error(`[training-blocks.generator] Missing training max for ${liftSlug}.`);
+        }
+
+        return createExercise({
+          planKey,
+          sessionId,
+          exerciseOrder: primaryLiftSlugs.length + exerciseIndex + 1,
+          liftSlug,
+          exerciseName: `${liftDisplayNameBySlug[liftSlug]} Support`,
+          prescriptionKind: "fixed-sets",
+          sets: supportPrescription.sets,
+          reps: supportPrescription.reps,
+          targetLoad: roundToLoadIncrement(
+            Number((trainingMax.trainingMax * supportPrescription.intensity).toFixed(2)),
+            trainingMax.sourceUnit,
+          ),
+          targetRpe: scheduledSlot.weekIndex === options.blockConfiguration.durationWeeks ? 6 : 7,
+          restSeconds: liftSlug === "deadlift" ? 180 : 120,
+        });
+      }),
+    ];
+
+    return {
+      id: sessionId,
+      blockId,
+      blockRevisionId: revisionId,
+      scheduledDate: scheduledSlot.scheduledDate,
+      scheduledWeekday: scheduledSlot.scheduledWeekday,
+      sessionIndex,
+      weekIndex: scheduledSlot.weekIndex,
+      sessionType,
+      title:
+        sessionType === "primary"
+          ? `${liftDisplayNameBySlug[leadLiftSlug]} Primary Week ${scheduledSlot.weekIndex}`
+          : sessionType === "deload"
+            ? `${liftDisplayNameBySlug[leadLiftSlug]} Deload Week ${scheduledSlot.weekIndex}`
+            : `${liftDisplayNameBySlug[leadLiftSlug]} Support Week ${scheduledSlot.weekIndex}`,
+      status: "planned" as const,
+      plannedExercises,
+    };
   });
   const lastScheduledDate = scheduledDates.at(-1)?.scheduledDate ?? addDays(options.startDate, 27);
 
@@ -267,22 +434,23 @@ export const generateFixedTrainingBlock = (
       id: blockId,
       name: options.blockName ?? "Starter Strength Block",
       status: "draft",
-      goalSlug: options.goalSlug ?? "general-strength",
+      goalSlug: options.goalSlug ?? options.blockConfiguration.primaryGoal,
       startDate: options.startDate,
       endDate: lastScheduledDate,
       benchmarkSnapshotId,
       generationVersion: "v1-fixed-benchmark-block",
       createdAt,
       updatedAt: createdAt,
-      schedulingPreferences: options.schedulingPreferences,
-      notes: `Generated from local benchmark inputs with ${liftDisplayNameBySlug[primaryLiftSlug]} as the primary lift focus.`,
+      schedulingPreferences: options.blockConfiguration.schedulingPreferences,
+      blockConfiguration: options.blockConfiguration,
+      notes: `Generated from local benchmark inputs with ${liftDisplayNameBySlug[primaryLiftSlug]} as the primary lift focus over ${options.blockConfiguration.durationWeeks} weeks.`,
     },
     revision: {
       id: revisionId,
       blockId,
       revisionNumber: 1,
       reason: "initial-generation",
-      summary: "Initial 4-week fixed block generated from saved benchmark inputs.",
+      summary: `Initial ${options.blockConfiguration.durationWeeks}-week block generated from saved benchmark inputs and setup configuration.`,
       createdAt,
     },
     sessions,

@@ -11,6 +11,7 @@ const isoDateTimeSchema = z.iso.datetime();
 const positiveIntegerSchema = z.number().int().positive();
 const nonNegativeNumberSchema = z.number().nonnegative();
 const weekdayCountSchema = z.number().int().min(1).max(7);
+const secondaryLiftCountSchema = z.number().int().min(0).max(4);
 
 export const liftSlugSchema = z.enum([
   "back-squat",
@@ -27,6 +28,8 @@ export const benchmarkTypeSchema = z.enum([
 ]);
 
 export const loadUnitSchema = z.enum(["kg", "lb"]);
+export const blockDurationWeeksSchema = z.union([z.literal(4), z.literal(6), z.literal(8)]);
+export const liftGoalSchema = z.enum(["strength", "hypertrophy", "power", "technique"]);
 export const trainingWeekdaySchema = z.enum([
   "monday",
   "tuesday",
@@ -38,7 +41,13 @@ export const trainingWeekdaySchema = z.enum([
 ]);
 
 export const trainingBlockStatusSchema = z.enum(["draft", "active", "completed", "archived"]);
-export const sessionTypeSchema = z.enum(["primary", "secondary", "deload", "benchmark"]);
+export const sessionTypeSchema = z.enum([
+  "primary",
+  "secondary",
+  "deload",
+  "benchmark",
+  "final-test",
+]);
 export const plannedSessionStatusSchema = z.enum(["planned", "completed", "skipped"]);
 export const prescriptionKindSchema = z.enum(["fixed-sets", "top-set-backoff", "amrap"]);
 export const workoutCompletionStatusSchema = z.enum(["completed", "partial", "missed"]);
@@ -96,6 +105,68 @@ export const validatedBlockSchedulingPreferencesSchema = blockSchedulingPreferen
   },
 );
 
+export const uniqueLiftSlugListSchema = z
+  .array(liftSlugSchema)
+  .min(1)
+  .max(4)
+  .refine((liftSlugs) => new Set(liftSlugs).size === liftSlugs.length, {
+    message: "Lift selections must not contain duplicates.",
+  });
+
+export const blockConfigurationSchema = z.object({
+  schedulingPreferences: blockSchedulingPreferencesSchema,
+  durationWeeks: blockDurationWeeksSchema,
+  primaryGoal: liftGoalSchema,
+  secondaryGoal: liftGoalSchema,
+  benchmarkLiftSlugs: uniqueLiftSlugListSchema,
+  primaryLiftsPerSession: positiveIntegerSchema.max(4),
+  secondaryLiftsPerSession: secondaryLiftCountSchema,
+  primaryLiftPool: uniqueLiftSlugListSchema,
+  secondaryLiftPool: uniqueLiftSlugListSchema,
+});
+
+export const validatedBlockConfigurationSchema = blockConfigurationSchema.superRefine(
+  (value, context) => {
+    if (
+      value.schedulingPreferences.selectedTrainingWeekdays.length !==
+      value.schedulingPreferences.trainingDaysPerWeek
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["schedulingPreferences", "selectedTrainingWeekdays"],
+        message: "Select the same number of weekdays as the weekly training frequency.",
+      });
+    }
+
+    if (value.primaryLiftsPerSession > value.primaryLiftPool.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["primaryLiftsPerSession"],
+        message: "Primary lifts per session cannot exceed the selected primary lift pool.",
+      });
+    }
+
+    if (value.secondaryLiftsPerSession > value.secondaryLiftPool.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["secondaryLiftsPerSession"],
+        message: "Secondary lifts per session cannot exceed the selected secondary lift pool.",
+      });
+    }
+
+    const uniqueLiftCount = new Set([...value.primaryLiftPool, ...value.secondaryLiftPool]).size;
+
+    if (value.primaryLiftsPerSession + value.secondaryLiftsPerSession > uniqueLiftCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["secondaryLiftPool"],
+        message:
+          "Combined primary and secondary session counts need enough unique lifts across both pools.",
+      });
+    }
+  },
+);
+
 export const benchmarkSnapshotItemSchema = z.object({
   id: nonEmptyStringSchema,
   snapshotId: nonEmptyStringSchema,
@@ -127,6 +198,7 @@ export const trainingBlockSchema = z.object({
   updatedAt: isoDateTimeSchema,
   notes: optionalNullableStringSchema,
   schedulingPreferences: blockSchedulingPreferencesSchema.nullable().default(null),
+  blockConfiguration: blockConfigurationSchema.nullable().default(null),
 });
 
 export const blockRevisionSchema = z.object({
@@ -227,6 +299,10 @@ export type BlockSchedulingPreferences = z.infer<typeof blockSchedulingPreferenc
 export type ValidatedBlockSchedulingPreferences = z.infer<
   typeof validatedBlockSchedulingPreferencesSchema
 >;
+export type BlockDurationWeeks = z.infer<typeof blockDurationWeeksSchema>;
+export type LiftGoal = z.infer<typeof liftGoalSchema>;
+export type BlockConfiguration = z.infer<typeof blockConfigurationSchema>;
+export type ValidatedBlockConfiguration = z.infer<typeof validatedBlockConfigurationSchema>;
 export type BenchmarkSnapshotItem = z.infer<typeof benchmarkSnapshotItemSchema>;
 export type BenchmarkSnapshot = z.infer<typeof benchmarkSnapshotSchema>;
 export type TrainingBlock = z.infer<typeof trainingBlockSchema>;

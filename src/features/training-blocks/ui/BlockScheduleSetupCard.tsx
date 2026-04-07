@@ -2,90 +2,107 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, LoadingState } from "@/components/ui";
-import { useBlockSchedulingPreferencesQuery } from "@/features/training-blocks/queries/useBlockSchedulingPreferencesQuery";
-import { useSaveBlockSchedulingPreferencesMutation } from "@/features/training-blocks/queries/useSaveBlockSchedulingPreferencesMutation";
-import type { TrainingWeekday } from "@/features/training-blocks/schema/trainingBlockSchemas";
+import { benchmarkFieldMetadata } from "@/features/training-blocks/services/benchmarkDraftService";
+import { useBlockConfigurationQuery } from "@/features/training-blocks/queries/useBlockConfigurationQuery";
+import { useSaveBlockConfigurationMutation } from "@/features/training-blocks/queries/useSaveBlockConfigurationMutation";
+import type { BenchmarkInput, TrainingWeekday } from "@/features/training-blocks/schema/trainingBlockSchemas";
 import {
-  createBlockSchedulingDraftFromSaved,
-  createEmptyBlockSchedulingDraft,
+  createBlockConfigurationDraftFromSaved,
+  createEmptyBlockConfigurationDraft,
+  toggleLiftSlugSelection,
   toggleTrainingWeekday,
-  validateBlockSchedulingDraft,
-} from "@/features/training-blocks/services/blockSchedulingDraftService";
+  validateBlockConfigurationDraft,
+} from "@/features/training-blocks/services/blockConfigurationDraftService";
 import {
-  trainingWeekdayLabels,
-  trainingWeekdayOrder,
-} from "@/features/training-blocks/services/blockSchedulingService";
+  blockDurationWeekOptions,
+  liftGoalLabels,
+  liftGoalOptions,
+  sessionPrimaryLiftCountOptions,
+  sessionSecondaryLiftCountOptions,
+} from "@/features/training-blocks/services/blockConfigurationService";
+import { trainingWeekdayLabels, trainingWeekdayOrder } from "@/features/training-blocks/services/blockSchedulingService";
 import { appTheme } from "@/theme/appTheme";
 
 const frequencyOptions = [2, 3, 4, 5] as const;
+const liftOptions = Object.keys(benchmarkFieldMetadata) as BenchmarkInput["liftSlug"][];
 
 export const BlockScheduleSetupCard = () => {
-  const schedulingPreferencesQuery = useBlockSchedulingPreferencesQuery();
-  const saveSchedulingPreferencesMutation = useSaveBlockSchedulingPreferencesMutation();
-  const [trainingDaysPerWeek, setTrainingDaysPerWeek] = useState<number>(3);
-  const [selectedTrainingWeekdays, setSelectedTrainingWeekdays] = useState<readonly TrainingWeekday[]>([
-    "monday",
-    "wednesday",
-    "friday",
-  ]);
+  const blockConfigurationQuery = useBlockConfigurationQuery();
+  const saveBlockConfigurationMutation = useSaveBlockConfigurationMutation();
+  const [draft, setDraft] = useState(createEmptyBlockConfigurationDraft);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [weekdayError, setWeekdayError] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasHydratedSavedValues, setHasHydratedSavedValues] = useState(false);
 
   useEffect(() => {
-    if (schedulingPreferencesQuery.data === undefined || hasHydratedSavedValues) {
+    if (blockConfigurationQuery.data === undefined || hasHydratedSavedValues) {
       return;
     }
 
-    const draft =
-      schedulingPreferencesQuery.data === null
-        ? createEmptyBlockSchedulingDraft()
-        : createBlockSchedulingDraftFromSaved(schedulingPreferencesQuery.data);
-
-    setTrainingDaysPerWeek(draft.trainingDaysPerWeek);
-    setSelectedTrainingWeekdays(draft.selectedTrainingWeekdays);
+    setDraft(
+      blockConfigurationQuery.data === null
+        ? createEmptyBlockConfigurationDraft()
+        : createBlockConfigurationDraftFromSaved(blockConfigurationQuery.data),
+    );
     setHasHydratedSavedValues(true);
-  }, [hasHydratedSavedValues, schedulingPreferencesQuery.data]);
+  }, [blockConfigurationQuery.data, hasHydratedSavedValues]);
 
   const handleToggleWeekday = (weekday: TrainingWeekday) => {
-    setSelectedTrainingWeekdays((current) => toggleTrainingWeekday(current, weekday));
-    setWeekdayError(null);
+    setDraft((current) => ({
+      ...current,
+        schedulingPreferences: {
+          ...current.schedulingPreferences,
+          selectedTrainingWeekdays: [
+            ...toggleTrainingWeekday(current.schedulingPreferences.selectedTrainingWeekdays, weekday),
+          ],
+        },
+      }));
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+  };
+
+  const handleToggleLift = (
+    key: "benchmarkLiftSlugs" | "primaryLiftPool" | "secondaryLiftPool",
+    liftSlug: BenchmarkInput["liftSlug"],
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      [key]: toggleLiftSlugSelection(current[key], liftSlug),
+    }));
+    setErrorMessage(null);
     setFeedbackMessage(null);
   };
 
   const handleSave = async () => {
-    const validationResult = validateBlockSchedulingDraft({
-      trainingDaysPerWeek,
-      selectedTrainingWeekdays,
-    });
+    const validationResult = validateBlockConfigurationDraft(draft);
 
     if (validationResult.data === null) {
-      setWeekdayError(
-        validationResult.errors.selectedTrainingWeekdays ??
-          "Select the same number of weekdays as your weekly training frequency.",
-      );
-      setFeedbackMessage("Fix the schedule selection before saving.");
+      const nextErrorMessage =
+        validationResult.errors.schedulingPreferences ??
+        "Fix the highlighted block configuration fields before saving.";
+      setErrorMessage(nextErrorMessage);
+      setFeedbackMessage("The block configuration needs one more pass before it can be saved.");
       return;
     }
 
-    setWeekdayError(null);
+    setErrorMessage(null);
 
     try {
-      await saveSchedulingPreferencesMutation.mutateAsync(validationResult.data);
-      setFeedbackMessage("Training schedule saved locally for future block generation.");
+      await saveBlockConfigurationMutation.mutateAsync(validationResult.data);
+      setFeedbackMessage("Block configuration saved locally and ready for generation.");
     } catch (error) {
       setFeedbackMessage(
-        error instanceof Error ? error.message : "Saving the block schedule failed.",
+        error instanceof Error ? error.message : "Saving the block configuration failed.",
       );
     }
   };
 
-  if (schedulingPreferencesQuery.isLoading && !hasHydratedSavedValues) {
+  if (blockConfigurationQuery.isLoading && !hasHydratedSavedValues) {
     return (
       <Card>
         <LoadingState
-          title="Loading schedule setup"
-          description="Restoring the saved weekly training frequency and weekday preferences."
+          title="Loading block setup"
+          description="Restoring the saved schedule, goals, duration, and lift selections."
         />
       </Card>
     );
@@ -94,10 +111,10 @@ export const BlockScheduleSetupCard = () => {
   return (
     <Card>
       <View style={styles.header}>
-        <Text style={styles.title}>Schedule setup</Text>
+        <Text style={styles.title}>Block setup</Text>
         <Text style={styles.description}>
-          Choose how many days per week you want to train and which weekdays should receive the
-          generated sessions.
+          Configure the weekly schedule, duration, goals, benchmark lifts, and session composition
+          before generating or regenerating the active block.
         </Text>
       </View>
 
@@ -109,20 +126,30 @@ export const BlockScheduleSetupCard = () => {
               key={option}
               accessibilityRole="button"
               onPress={() => {
-                setTrainingDaysPerWeek(option);
-                setWeekdayError(null);
+                setDraft((current) => ({
+                  ...current,
+                  schedulingPreferences: {
+                    ...current.schedulingPreferences,
+                    trainingDaysPerWeek: option,
+                  },
+                }));
+                setErrorMessage(null);
                 setFeedbackMessage(null);
               }}
               style={({ pressed }) => [
                 styles.choiceChip,
-                trainingDaysPerWeek === option ? styles.choiceChipActive : null,
+                draft.schedulingPreferences.trainingDaysPerWeek === option
+                  ? styles.choiceChipActive
+                  : null,
                 pressed ? styles.choiceChipPressed : null,
               ]}
             >
               <Text
                 style={[
                   styles.choiceChipLabel,
-                  trainingDaysPerWeek === option ? styles.choiceChipLabelActive : null,
+                  draft.schedulingPreferences.trainingDaysPerWeek === option
+                    ? styles.choiceChipLabelActive
+                    : null,
                 ]}
               >
                 {option}
@@ -136,7 +163,7 @@ export const BlockScheduleSetupCard = () => {
         <Text style={styles.sectionLabel}>Scheduled weekdays</Text>
         <View style={styles.optionRow}>
           {trainingWeekdayOrder.map((weekday) => {
-            const isSelected = selectedTrainingWeekdays.includes(weekday);
+            const isSelected = draft.schedulingPreferences.selectedTrainingWeekdays.includes(weekday);
 
             return (
               <Pressable
@@ -163,24 +190,290 @@ export const BlockScheduleSetupCard = () => {
             );
           })}
         </View>
-        <Text style={[styles.helperText, weekdayError !== null ? styles.errorText : null]}>
-          {weekdayError ??
-            `Pick ${trainingDaysPerWeek} weekday${trainingDaysPerWeek === 1 ? "" : "s"} to match the requested weekly frequency.`}
-        </Text>
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Block duration</Text>
+        <View style={styles.optionRow}>
+          {blockDurationWeekOptions.map((option) => (
+            <Pressable
+              key={option}
+              accessibilityRole="button"
+              onPress={() => {
+                setDraft((current) => ({
+                  ...current,
+                  durationWeeks: option,
+                }));
+                setErrorMessage(null);
+                setFeedbackMessage(null);
+              }}
+              style={({ pressed }) => [
+                styles.choiceChip,
+                draft.durationWeeks === option ? styles.choiceChipActive : null,
+                pressed ? styles.choiceChipPressed : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.choiceChipLabel,
+                  draft.durationWeeks === option ? styles.choiceChipLabelActive : null,
+                ]}
+              >
+                {option}w
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Primary goal</Text>
+        <View style={styles.optionRow}>
+          {liftGoalOptions.map((goal) => (
+            <Pressable
+              key={goal}
+              accessibilityRole="button"
+              onPress={() => {
+                setDraft((current) => ({
+                  ...current,
+                  primaryGoal: goal,
+                }));
+                setErrorMessage(null);
+                setFeedbackMessage(null);
+              }}
+              style={({ pressed }) => [
+                styles.choiceChip,
+                draft.primaryGoal === goal ? styles.choiceChipActive : null,
+                pressed ? styles.choiceChipPressed : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.choiceChipLabel,
+                  draft.primaryGoal === goal ? styles.choiceChipLabelActive : null,
+                ]}
+              >
+                {liftGoalLabels[goal]}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Secondary goal</Text>
+        <View style={styles.optionRow}>
+          {liftGoalOptions.map((goal) => (
+            <Pressable
+              key={goal}
+              accessibilityRole="button"
+              onPress={() => {
+                setDraft((current) => ({
+                  ...current,
+                  secondaryGoal: goal,
+                }));
+                setErrorMessage(null);
+                setFeedbackMessage(null);
+              }}
+              style={({ pressed }) => [
+                styles.choiceChip,
+                draft.secondaryGoal === goal ? styles.choiceChipActive : null,
+                pressed ? styles.choiceChipPressed : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.choiceChipLabel,
+                  draft.secondaryGoal === goal ? styles.choiceChipLabelActive : null,
+                ]}
+              >
+                {liftGoalLabels[goal]}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Benchmark lifts</Text>
+        <View style={styles.optionRow}>
+          {liftOptions.map((liftSlug) => {
+            const isSelected = draft.benchmarkLiftSlugs.includes(liftSlug);
+
+            return (
+              <Pressable
+                key={`benchmark-${liftSlug}`}
+                accessibilityRole="button"
+                onPress={() => {
+                  handleToggleLift("benchmarkLiftSlugs", liftSlug);
+                }}
+                style={({ pressed }) => [
+                  styles.liftChip,
+                  isSelected ? styles.choiceChipActive : null,
+                  pressed ? styles.choiceChipPressed : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.choiceChipLabel,
+                    isSelected ? styles.choiceChipLabelActive : null,
+                  ]}
+                >
+                  {benchmarkFieldMetadata[liftSlug].label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Primary lifts per session</Text>
+        <View style={styles.optionRow}>
+          {sessionPrimaryLiftCountOptions.map((option) => (
+            <Pressable
+              key={`primary-count-${option}`}
+              accessibilityRole="button"
+              onPress={() => {
+                setDraft((current) => ({
+                  ...current,
+                  primaryLiftsPerSession: option,
+                }));
+                setErrorMessage(null);
+                setFeedbackMessage(null);
+              }}
+              style={({ pressed }) => [
+                styles.choiceChip,
+                draft.primaryLiftsPerSession === option ? styles.choiceChipActive : null,
+                pressed ? styles.choiceChipPressed : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.choiceChipLabel,
+                  draft.primaryLiftsPerSession === option ? styles.choiceChipLabelActive : null,
+                ]}
+              >
+                {option}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Secondary lifts per session</Text>
+        <View style={styles.optionRow}>
+          {sessionSecondaryLiftCountOptions.map((option) => (
+            <Pressable
+              key={`secondary-count-${option}`}
+              accessibilityRole="button"
+              onPress={() => {
+                setDraft((current) => ({
+                  ...current,
+                  secondaryLiftsPerSession: option,
+                }));
+                setErrorMessage(null);
+                setFeedbackMessage(null);
+              }}
+              style={({ pressed }) => [
+                styles.choiceChip,
+                draft.secondaryLiftsPerSession === option ? styles.choiceChipActive : null,
+                pressed ? styles.choiceChipPressed : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.choiceChipLabel,
+                  draft.secondaryLiftsPerSession === option ? styles.choiceChipLabelActive : null,
+                ]}
+              >
+                {option}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Primary lift pool</Text>
+        <View style={styles.optionRow}>
+          {liftOptions.map((liftSlug) => {
+            const isSelected = draft.primaryLiftPool.includes(liftSlug);
+
+            return (
+              <Pressable
+                key={`primary-pool-${liftSlug}`}
+                accessibilityRole="button"
+                onPress={() => {
+                  handleToggleLift("primaryLiftPool", liftSlug);
+                }}
+                style={({ pressed }) => [
+                  styles.liftChip,
+                  isSelected ? styles.choiceChipActive : null,
+                  pressed ? styles.choiceChipPressed : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.choiceChipLabel,
+                    isSelected ? styles.choiceChipLabelActive : null,
+                  ]}
+                >
+                  {benchmarkFieldMetadata[liftSlug].label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Secondary lift pool</Text>
+        <View style={styles.optionRow}>
+          {liftOptions.map((liftSlug) => {
+            const isSelected = draft.secondaryLiftPool.includes(liftSlug);
+
+            return (
+              <Pressable
+                key={`secondary-pool-${liftSlug}`}
+                accessibilityRole="button"
+                onPress={() => {
+                  handleToggleLift("secondaryLiftPool", liftSlug);
+                }}
+                style={({ pressed }) => [
+                  styles.liftChip,
+                  isSelected ? styles.choiceChipActive : null,
+                  pressed ? styles.choiceChipPressed : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.choiceChipLabel,
+                    isSelected ? styles.choiceChipLabelActive : null,
+                  ]}
+                >
+                  {benchmarkFieldMetadata[liftSlug].label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {errorMessage !== null ? (
+        <Text style={[styles.helperText, styles.errorText]}>{errorMessage}</Text>
+      ) : null}
       {feedbackMessage !== null ? (
-        <Text style={[styles.helperText, weekdayError !== null ? styles.errorText : null]}>
-          {feedbackMessage}
-        </Text>
+        <Text style={styles.helperText}>{feedbackMessage}</Text>
       ) : null}
 
       <Button
-        disabled={saveSchedulingPreferencesMutation.isPending}
+        disabled={saveBlockConfigurationMutation.isPending}
         label={
-          saveSchedulingPreferencesMutation.isPending
-            ? "Saving schedule..."
-            : "Save training schedule"
+          saveBlockConfigurationMutation.isPending
+            ? "Saving block setup..."
+            : "Save block setup"
         }
         onPress={() => {
           void handleSave();
@@ -239,6 +532,17 @@ const styles = StyleSheet.create({
     paddingVertical: appTheme.spacing.sm,
     backgroundColor: appTheme.colors.surface,
   },
+  liftChip: {
+    minWidth: 132,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: appTheme.colors.border,
+    borderRadius: appTheme.radius.md,
+    paddingHorizontal: appTheme.spacing.md,
+    paddingVertical: appTheme.spacing.sm,
+    backgroundColor: appTheme.colors.surface,
+  },
   choiceChipActive: {
     borderColor: appTheme.colors.accent,
     backgroundColor: appTheme.colors.accent,
@@ -267,6 +571,7 @@ const styles = StyleSheet.create({
   helperText: {
     fontSize: 13,
     color: appTheme.colors.textSecondary,
+    lineHeight: 20,
   },
   errorText: {
     color: appTheme.colors.danger,

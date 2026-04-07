@@ -58,6 +58,12 @@ const BlockOverviewScreen = () => {
               <Text style={styles.blockMeta}>
                 {overview.startDate} to {overview.endDate}
               </Text>
+              {overview.durationWeeks !== null ? (
+                <Text style={styles.blockMeta}>
+                  {overview.durationWeeks} weeks • {overview.primaryGoal ?? "primary"} primary goal
+                  • {overview.secondaryGoal ?? "secondary"} secondary goal
+                </Text>
+              ) : null}
               <Text style={styles.blockMeta}>
                 {overview.trainingDaysPerWeek === null
                   ? "No saved schedule metadata"
@@ -90,7 +96,20 @@ const BlockOverviewScreen = () => {
                       <View style={[styles.pill, styles.kindPill]}>
                         <Text style={styles.kindPillText}>{session.sessionKindLabel}</Text>
                       </View>
-                      <View style={[styles.pill, session.status === "completed" ? styles.donePill : session.status === "skipped" ? styles.missedPill : styles.plannedPill]}>
+                      <View
+                        style={[
+                          styles.pill,
+                          session.sessionType === "benchmark"
+                            ? styles.benchmarkPill
+                            : session.sessionType === "final-test"
+                              ? styles.finalTestPill
+                              : session.status === "completed"
+                                ? styles.donePill
+                                : session.status === "skipped"
+                                  ? styles.missedPill
+                                  : styles.plannedPill,
+                        ]}
+                      >
                         <Text style={styles.statusPillText}>{session.sessionStatusLabel}</Text>
                       </View>
                     </View>
@@ -155,6 +174,12 @@ const styles = StyleSheet.create({
   },
   plannedPill: {
     backgroundColor: appTheme.colors.surfaceMuted,
+  },
+  benchmarkPill: {
+    backgroundColor: "#f1e2b8",
+  },
+  finalTestPill: {
+    backgroundColor: "#d9e3f1",
   },
   donePill: {
     backgroundColor: "#d6ead6",

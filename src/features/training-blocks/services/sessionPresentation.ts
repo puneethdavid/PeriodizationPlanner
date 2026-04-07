@@ -17,7 +17,9 @@ export const getSessionKindLabel = (
 ): string => {
   switch (session.sessionType) {
     case "benchmark":
-      return "Benchmark test";
+      return "Benchmark";
+    case "final-test":
+      return "Final Test";
     case "deload":
       return "Deload";
     case "primary":

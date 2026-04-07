@@ -15,9 +15,11 @@ import {
   trainingBlockSchema,
   type Benchmark,
   type BenchmarkInput,
+  type BlockConfiguration,
   type BlockSchedulingPreferences,
   type BlockRevision,
   type GeneratedTrainingPlan,
+  type LiftGoal,
   type PlannedExercise,
   type PlannedSession,
   type PlannedSet,
@@ -27,6 +29,12 @@ import {
   generateFixedTrainingBlock,
   type FixedBlockGeneratorOptions,
 } from "@/features/training-blocks/services/fixedBlockGenerator";
+import {
+  createDefaultBlockConfiguration,
+  parseBlockConfigurationSnapshot,
+  serializeBlockConfigurationSnapshot,
+  validateBlockConfiguration,
+} from "@/features/training-blocks/services/blockConfigurationService";
 import {
   parseSerializedTrainingWeekdays,
   serializeTrainingWeekdays,
@@ -57,6 +65,14 @@ type TrainingBlockRow = {
   notes: string | null;
   training_days_per_week: number | null;
   selected_training_weekdays: string | null;
+  duration_weeks: number | null;
+  primary_goal: LiftGoal | null;
+  secondary_goal: LiftGoal | null;
+  benchmark_lift_slugs: string | null;
+  primary_lifts_per_session: number | null;
+  secondary_lifts_per_session: number | null;
+  primary_lift_pool: string | null;
+  secondary_lift_pool: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -87,6 +103,14 @@ type BlockSetupPreferencesRow = {
   id: string;
   training_days_per_week: number;
   selected_training_weekdays: string;
+  duration_weeks: number | null;
+  primary_goal: LiftGoal | null;
+  secondary_goal: LiftGoal | null;
+  benchmark_lift_slugs: string | null;
+  primary_lifts_per_session: number | null;
+  secondary_lifts_per_session: number | null;
+  primary_lift_pool: string | null;
+  secondary_lift_pool: string | null;
   updated_at: string;
 };
 
@@ -162,6 +186,18 @@ const mapTrainingBlockRow = (row: TrainingBlockRow): TrainingBlock =>
       benchmarkSnapshotId: row.benchmark_snapshot_id,
       generationVersion: row.generation_version,
       notes: row.notes,
+      blockConfiguration: parseBlockConfigurationSnapshot({
+        durationWeeks: row.duration_weeks,
+        primaryGoal: row.primary_goal,
+        secondaryGoal: row.secondary_goal,
+        benchmarkLiftSlugs: row.benchmark_lift_slugs,
+        primaryLiftsPerSession: row.primary_lifts_per_session,
+        secondaryLiftsPerSession: row.secondary_lifts_per_session,
+        primaryLiftPool: row.primary_lift_pool,
+        secondaryLiftPool: row.secondary_lift_pool,
+        trainingDaysPerWeek: row.training_days_per_week,
+        selectedTrainingWeekdays: row.selected_training_weekdays,
+      }),
       schedulingPreferences:
         row.training_days_per_week === null || row.selected_training_weekdays === null
           ? null
@@ -281,12 +317,30 @@ export class TrainingBlockRepository extends BaseRepository {
   }
 
   async getBlockSchedulingPreferencesAsync(): Promise<BlockSchedulingPreferences | null> {
+    const configuration = await this.getBlockConfigurationAsync();
+
+    if (configuration === null) {
+      return null;
+    }
+
+    return configuration.schedulingPreferences;
+  }
+
+  async getBlockConfigurationAsync(): Promise<BlockConfiguration | null> {
     const row = await this.database.getFirstAsync<BlockSetupPreferencesRow>(
       `
         SELECT
           id,
           training_days_per_week,
           selected_training_weekdays,
+          duration_weeks,
+          primary_goal,
+          secondary_goal,
+          benchmark_lift_slugs,
+          primary_lifts_per_session,
+          secondary_lifts_per_session,
+          primary_lift_pool,
+          secondary_lift_pool,
           updated_at
         FROM block_setup_preferences
         WHERE id = 'current'
@@ -298,20 +352,58 @@ export class TrainingBlockRepository extends BaseRepository {
       return null;
     }
 
-    return parseWithSchema(
-      blockSchedulingPreferencesSchema,
-      {
-        trainingDaysPerWeek: row.training_days_per_week,
-        selectedTrainingWeekdays: parseSerializedTrainingWeekdays(row.selected_training_weekdays),
-      },
-      "training-blocks.block-setup-preferences",
-    );
+    const parsedConfiguration = parseBlockConfigurationSnapshot({
+      durationWeeks: row.duration_weeks,
+      primaryGoal: row.primary_goal,
+      secondaryGoal: row.secondary_goal,
+      benchmarkLiftSlugs: row.benchmark_lift_slugs,
+      primaryLiftsPerSession: row.primary_lifts_per_session,
+      secondaryLiftsPerSession: row.secondary_lifts_per_session,
+      primaryLiftPool: row.primary_lift_pool,
+      secondaryLiftPool: row.secondary_lift_pool,
+      trainingDaysPerWeek: row.training_days_per_week,
+      selectedTrainingWeekdays: row.selected_training_weekdays,
+    });
+
+    if (parsedConfiguration !== null) {
+      return parsedConfiguration;
+    }
+
+    const defaultConfiguration = createDefaultBlockConfiguration();
+
+    if (row.training_days_per_week !== null && row.selected_training_weekdays !== null) {
+      return {
+        ...defaultConfiguration,
+        schedulingPreferences: {
+          trainingDaysPerWeek: row.training_days_per_week,
+          selectedTrainingWeekdays: [
+            ...parseSerializedTrainingWeekdays(row.selected_training_weekdays),
+          ],
+        },
+      };
+    }
+
+    return defaultConfiguration;
   }
 
   async saveBlockSchedulingPreferencesAsync(
     input: BlockSchedulingPreferences,
   ): Promise<BlockSchedulingPreferences> {
-    const validatedPreferences = validateBlockSchedulingPreferences(input);
+    const existingConfiguration =
+      (await this.getBlockConfigurationAsync()) ?? createDefaultBlockConfiguration();
+    const nextConfiguration = validateBlockConfiguration({
+      ...existingConfiguration,
+      schedulingPreferences: validateBlockSchedulingPreferences(input),
+    });
+
+    await this.saveBlockConfigurationAsync(nextConfiguration);
+
+    return nextConfiguration.schedulingPreferences;
+  }
+
+  async saveBlockConfigurationAsync(input: BlockConfiguration): Promise<BlockConfiguration> {
+    const validatedConfiguration = validateBlockConfiguration(input);
+    const serializedConfiguration = serializeBlockConfigurationSnapshot(validatedConfiguration);
     const updatedAt = new Date().toISOString();
 
     await this.database.runAsync(
@@ -320,20 +412,44 @@ export class TrainingBlockRepository extends BaseRepository {
           id,
           training_days_per_week,
           selected_training_weekdays,
+          duration_weeks,
+          primary_goal,
+          secondary_goal,
+          benchmark_lift_slugs,
+          primary_lifts_per_session,
+          secondary_lifts_per_session,
+          primary_lift_pool,
+          secondary_lift_pool,
           updated_at
-        ) VALUES (?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           training_days_per_week = excluded.training_days_per_week,
           selected_training_weekdays = excluded.selected_training_weekdays,
+          duration_weeks = excluded.duration_weeks,
+          primary_goal = excluded.primary_goal,
+          secondary_goal = excluded.secondary_goal,
+          benchmark_lift_slugs = excluded.benchmark_lift_slugs,
+          primary_lifts_per_session = excluded.primary_lifts_per_session,
+          secondary_lifts_per_session = excluded.secondary_lifts_per_session,
+          primary_lift_pool = excluded.primary_lift_pool,
+          secondary_lift_pool = excluded.secondary_lift_pool,
           updated_at = excluded.updated_at
       `,
       "current",
-      validatedPreferences.trainingDaysPerWeek,
-      serializeTrainingWeekdays(validatedPreferences.selectedTrainingWeekdays),
+      serializedConfiguration.trainingDaysPerWeek,
+      serializedConfiguration.selectedTrainingWeekdays,
+      serializedConfiguration.durationWeeks,
+      serializedConfiguration.primaryGoal,
+      serializedConfiguration.secondaryGoal,
+      serializedConfiguration.benchmarkLiftSlugs,
+      serializedConfiguration.primaryLiftsPerSession,
+      serializedConfiguration.secondaryLiftsPerSession,
+      serializedConfiguration.primaryLiftPool,
+      serializedConfiguration.secondaryLiftPool,
       updatedAt,
     );
 
-    return validatedPreferences;
+    return validatedConfiguration;
   }
 
   private async persistGeneratedTrainingPlanWithDatabaseAsync(
@@ -408,10 +524,25 @@ export class TrainingBlockRepository extends BaseRepository {
           notes,
           training_days_per_week,
           selected_training_weekdays,
+          duration_weeks,
+          primary_goal,
+          secondary_goal,
+          benchmark_lift_slugs,
+          primary_lifts_per_session,
+          secondary_lifts_per_session,
+          primary_lift_pool,
+          secondary_lift_pool,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
+      ...(function () {
+        const serializedConfiguration =
+          plan.block.blockConfiguration === null
+            ? null
+            : serializeBlockConfigurationSnapshot(plan.block.blockConfiguration);
+
+        return [
       plan.block.id,
       plan.block.name,
       plan.block.status,
@@ -421,12 +552,29 @@ export class TrainingBlockRepository extends BaseRepository {
       plan.block.benchmarkSnapshotId,
       plan.block.generationVersion,
       plan.block.notes ?? null,
-      plan.block.schedulingPreferences?.trainingDaysPerWeek ?? null,
-      plan.block.schedulingPreferences === null
+      plan.block.schedulingPreferences?.trainingDaysPerWeek ??
+        plan.block.blockConfiguration?.schedulingPreferences.trainingDaysPerWeek ??
+        null,
+      plan.block.schedulingPreferences === null && plan.block.blockConfiguration === null
         ? null
-        : serializeTrainingWeekdays(plan.block.schedulingPreferences.selectedTrainingWeekdays),
+        : serializeTrainingWeekdays(
+            (
+              plan.block.blockConfiguration?.schedulingPreferences ??
+              plan.block.schedulingPreferences
+            )!.selectedTrainingWeekdays,
+          ),
+      serializedConfiguration?.durationWeeks ?? null,
+      serializedConfiguration?.primaryGoal ?? null,
+      serializedConfiguration?.secondaryGoal ?? null,
+      serializedConfiguration?.benchmarkLiftSlugs ?? null,
+      serializedConfiguration?.primaryLiftsPerSession ?? null,
+      serializedConfiguration?.secondaryLiftsPerSession ?? null,
+      serializedConfiguration?.primaryLiftPool ?? null,
+      serializedConfiguration?.secondaryLiftPool ?? null,
       plan.block.createdAt,
       plan.block.updatedAt,
+        ];
+      })(),
     );
 
     await database.runAsync(
@@ -679,7 +827,7 @@ export class TrainingBlockRepository extends BaseRepository {
     options: FixedBlockGeneratorOptions,
   ): Promise<GeneratedTrainingPlan> {
     const benchmarks = await this.getLatestBenchmarksAsync();
-    const schedulingPreferences = await this.getRequiredBlockSchedulingPreferencesAsync();
+    const blockConfiguration = await this.getRequiredBlockConfigurationAsync();
 
     if (benchmarks.length === 0) {
       throw new Error(
@@ -689,7 +837,7 @@ export class TrainingBlockRepository extends BaseRepository {
 
     const plan = generateFixedTrainingBlock(benchmarks, {
       ...options,
-      schedulingPreferences,
+      blockConfiguration,
     });
     return this.persistGeneratedTrainingPlanAsync(plan, benchmarks);
   }
@@ -698,7 +846,7 @@ export class TrainingBlockRepository extends BaseRepository {
     options: FixedBlockGeneratorOptions,
   ): Promise<GeneratedTrainingPlan> {
     const benchmarks = await this.getLatestBenchmarksAsync();
-    const schedulingPreferences = await this.getRequiredBlockSchedulingPreferencesAsync();
+    const blockConfiguration = await this.getRequiredBlockConfigurationAsync();
 
     if (benchmarks.length === 0) {
       throw new Error(
@@ -708,7 +856,7 @@ export class TrainingBlockRepository extends BaseRepository {
 
     const generatedPlan = generateFixedTrainingBlock(benchmarks, {
       ...options,
-      schedulingPreferences,
+      blockConfiguration,
     });
     const activatedAt = new Date().toISOString();
     const activePlan = parseWithSchema(
@@ -745,16 +893,16 @@ export class TrainingBlockRepository extends BaseRepository {
     return activePlan;
   }
 
-  private async getRequiredBlockSchedulingPreferencesAsync(): Promise<BlockSchedulingPreferences> {
-    const schedulingPreferences = await this.getBlockSchedulingPreferencesAsync();
+  private async getRequiredBlockConfigurationAsync(): Promise<BlockConfiguration> {
+    const blockConfiguration = await this.getBlockConfigurationAsync();
 
-    if (schedulingPreferences === null) {
+    if (blockConfiguration === null) {
       throw new Error(
-        "[training-blocks] Save a valid training schedule before generating an active block.",
+        "[training-blocks] Save a valid block configuration before generating an active block.",
       );
     }
 
-    return validateBlockSchedulingPreferences(schedulingPreferences);
+    return validateBlockConfiguration(blockConfiguration);
   }
 
   async persistGeneratedTrainingPlanAsync(
@@ -788,6 +936,14 @@ export class TrainingBlockRepository extends BaseRepository {
           notes,
           training_days_per_week,
           selected_training_weekdays,
+          duration_weeks,
+          primary_goal,
+          secondary_goal,
+          benchmark_lift_slugs,
+          primary_lifts_per_session,
+          secondary_lifts_per_session,
+          primary_lift_pool,
+          secondary_lift_pool,
           created_at,
           updated_at
         FROM training_blocks

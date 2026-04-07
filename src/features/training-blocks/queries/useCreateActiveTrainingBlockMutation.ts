@@ -30,6 +30,9 @@ export const useCreateActiveTrainingBlockMutation = () => {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
+          queryKey: queryKeys.trainingBlocks.configuration(),
+        }),
+        queryClient.invalidateQueries({
           queryKey: queryKeys.trainingBlocks.overview(),
         }),
         queryClient.invalidateQueries({

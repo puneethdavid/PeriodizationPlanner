@@ -11,6 +11,9 @@ export type BlockOverviewQueryModel = {
   goalSlug: string;
   startDate: string;
   endDate: string;
+  durationWeeks: number | null;
+  primaryGoal: string | null;
+  secondaryGoal: string | null;
   trainingDaysPerWeek: number | null;
   selectedWeekdaysLabel: string | null;
   weeks: readonly {
@@ -90,6 +93,9 @@ export const buildBlockOverviewQueryModel = (
     goalSlug: activePlan.block.goalSlug,
     startDate: activePlan.block.startDate,
     endDate: activePlan.block.endDate,
+    durationWeeks: activePlan.block.blockConfiguration?.durationWeeks ?? null,
+    primaryGoal: activePlan.block.blockConfiguration?.primaryGoal ?? null,
+    secondaryGoal: activePlan.block.blockConfiguration?.secondaryGoal ?? null,
     trainingDaysPerWeek: activePlan.block.schedulingPreferences?.trainingDaysPerWeek ?? null,
     selectedWeekdaysLabel,
     weeks,

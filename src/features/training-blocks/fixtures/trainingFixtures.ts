@@ -2,7 +2,7 @@ import type {
   BenchmarkInput,
   GeneratedTrainingPlan,
 } from "@/features/training-blocks/schema/trainingBlockSchemas";
-import { createDefaultBlockSchedulingPreferences } from "@/features/training-blocks/services/blockSchedulingService";
+import { createDefaultBlockConfiguration } from "@/features/training-blocks/services/blockConfigurationService";
 import { generateFixedTrainingBlock } from "@/features/training-blocks/services/fixedBlockGenerator";
 
 export const starterBenchmarkFixture: readonly BenchmarkInput[] = [
@@ -59,6 +59,6 @@ export const createStarterTrainingPlanFixture = (
     blockName: "Starter Strength Block",
     goalSlug: "general-strength",
     primaryLiftSlug: "back-squat",
-    schedulingPreferences: createDefaultBlockSchedulingPreferences(),
+    blockConfiguration: createDefaultBlockConfiguration(),
   });
 };

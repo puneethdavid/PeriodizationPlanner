@@ -217,6 +217,76 @@ export const migrations: readonly Migration[] = [
       `,
     ],
   },
+  {
+    version: 4,
+    name: "expanded-block-configuration",
+    statements: [
+      `
+        ALTER TABLE block_setup_preferences
+        ADD COLUMN duration_weeks INTEGER;
+      `,
+      `
+        ALTER TABLE block_setup_preferences
+        ADD COLUMN primary_goal TEXT;
+      `,
+      `
+        ALTER TABLE block_setup_preferences
+        ADD COLUMN secondary_goal TEXT;
+      `,
+      `
+        ALTER TABLE block_setup_preferences
+        ADD COLUMN benchmark_lift_slugs TEXT;
+      `,
+      `
+        ALTER TABLE block_setup_preferences
+        ADD COLUMN primary_lifts_per_session INTEGER;
+      `,
+      `
+        ALTER TABLE block_setup_preferences
+        ADD COLUMN secondary_lifts_per_session INTEGER;
+      `,
+      `
+        ALTER TABLE block_setup_preferences
+        ADD COLUMN primary_lift_pool TEXT;
+      `,
+      `
+        ALTER TABLE block_setup_preferences
+        ADD COLUMN secondary_lift_pool TEXT;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN duration_weeks INTEGER;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN primary_goal TEXT;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN secondary_goal TEXT;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN benchmark_lift_slugs TEXT;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN primary_lifts_per_session INTEGER;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN secondary_lifts_per_session INTEGER;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN primary_lift_pool TEXT;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN secondary_lift_pool TEXT;
+      `,
+    ],
+  },
 ] as const;
 
 export const latestSchemaVersion = migrations.at(-1)?.version ?? 0;
