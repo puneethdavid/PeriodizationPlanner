@@ -47,9 +47,9 @@ import type {
   ProposedPlanRevision,
 } from "@/features/training-blocks/services/adaptationEngineContracts";
 import {
-  generateFixedTrainingBlock,
-  type FixedBlockGeneratorOptions,
-} from "@/features/training-blocks/services/fixedBlockGenerator";
+  generateGoalDrivenLpTrainingBlock,
+  type GoalDrivenLpGeneratorOptions,
+} from "@/features/training-blocks/services/goalDrivenLpGenerator";
 import {
   createDefaultBlockConfiguration,
   parseBlockConfigurationSnapshot,
@@ -1330,7 +1330,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
   }
 
   async createTrainingBlockFromSavedBenchmarksAsync(
-    options: FixedBlockGeneratorOptions,
+    options: GoalDrivenLpGeneratorOptions,
   ): Promise<GeneratedTrainingPlan> {
     const benchmarks = await this.getLatestBenchmarksAsync();
     const blockConfiguration = await this.getRequiredBlockConfigurationAsync();
@@ -1341,7 +1341,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       );
     }
 
-    const plan = generateFixedTrainingBlock(benchmarks, {
+    const plan = generateGoalDrivenLpTrainingBlock(benchmarks, {
       ...options,
       blockConfiguration,
     });
@@ -1349,7 +1349,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
   }
 
   async createActiveTrainingBlockFromSavedBenchmarksAsync(
-    options: FixedBlockGeneratorOptions,
+    options: GoalDrivenLpGeneratorOptions,
   ): Promise<GeneratedTrainingPlan> {
     const benchmarks = await this.getLatestBenchmarksAsync();
     const blockConfiguration = await this.getRequiredBlockConfigurationAsync();
@@ -1360,7 +1360,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       );
     }
 
-    const generatedPlan = generateFixedTrainingBlock(benchmarks, {
+    const generatedPlan = generateGoalDrivenLpTrainingBlock(benchmarks, {
       ...options,
       blockConfiguration,
     });

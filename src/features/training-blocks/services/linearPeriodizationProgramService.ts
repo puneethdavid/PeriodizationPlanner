@@ -1,5 +1,5 @@
-import type { Benchmark } from "@/features/training-blocks/schema/trainingBlockSchemas";
 import type {
+  BenchmarkInput,
   LpCheckpointType,
   LpPhaseDefinition,
   LpProgramLevel,
@@ -11,7 +11,7 @@ type LiftLevelThresholdBand = {
   advancedAtOrAbove: number;
 };
 
-type LiftLevelThresholdTable = Record<Benchmark["liftSlug"], LiftLevelThresholdBand>;
+type LiftLevelThresholdTable = Record<BenchmarkInput["liftSlug"], LiftLevelThresholdBand>;
 
 const kilogramThresholds: LiftLevelThresholdTable = {
   "back-squat": {
@@ -52,11 +52,11 @@ const phaseDurationsByLevel: Record<LpProgramLevel, { volumeWeeks: number; stren
 
 const levelPriority: readonly LpProgramLevel[] = ["beginner", "intermediate", "advanced"] as const;
 
-const normalizeBenchmarkValueToKilograms = (benchmark: Benchmark): number => {
+const normalizeBenchmarkValueToKilograms = (benchmark: Pick<BenchmarkInput, "unit" | "value">): number => {
   return benchmark.unit === "lb" ? benchmark.value * poundsToKilograms : benchmark.value;
 };
 
-const classifyLiftLevel = (benchmark: Benchmark): LpProgramLevel => {
+const classifyLiftLevel = (benchmark: Pick<BenchmarkInput, "liftSlug" | "unit" | "value">): LpProgramLevel => {
   const thresholds = kilogramThresholds[benchmark.liftSlug];
   const normalizedValue = normalizeBenchmarkValueToKilograms(benchmark);
 
@@ -81,7 +81,9 @@ const buildPhaseDefinition = (
   checkpointType,
 });
 
-export const deriveLpProgramLevel = (benchmarks: readonly Benchmark[]): LpProgramLevel => {
+export const deriveLpProgramLevel = (
+  benchmarks: readonly Pick<BenchmarkInput, "liftSlug" | "unit" | "value">[],
+): LpProgramLevel => {
   if (benchmarks.length === 0) {
     return "beginner";
   }
@@ -127,7 +129,7 @@ export const buildLpProgramStructure = (
 };
 
 export const buildLpProgramStructureFromBenchmarks = (
-  benchmarks: readonly Benchmark[],
+  benchmarks: readonly Pick<BenchmarkInput, "liftSlug" | "unit" | "value">[],
 ): LpProgramStructure => {
   const level = deriveLpProgramLevel(benchmarks);
   return buildLpProgramStructure(level);
