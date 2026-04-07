@@ -334,6 +334,7 @@ export const generateFixedTrainingBlock = (
           ? `Benchmark Session Week ${scheduledSlot.weekIndex}`
           : `Final Test Session Week ${scheduledSlot.weekIndex}`,
         status: "planned" as const,
+        lpMetadata: null,
         plannedExercises,
       };
     }
@@ -424,6 +425,7 @@ export const generateFixedTrainingBlock = (
             ? `${liftDisplayNameBySlug[leadLiftSlug]} Deload Week ${scheduledSlot.weekIndex}`
             : `${liftDisplayNameBySlug[leadLiftSlug]} Support Week ${scheduledSlot.weekIndex}`,
       status: "planned" as const,
+      lpMetadata: null,
       plannedExercises,
     };
   });

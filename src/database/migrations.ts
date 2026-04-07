@@ -301,6 +301,87 @@ export const migrations: readonly Migration[] = [
       `,
     ],
   },
+  {
+    version: 6,
+    name: "linear-periodization-state",
+    statements: [
+      `
+        ALTER TABLE planned_sessions
+        ADD COLUMN lp_metadata TEXT;
+      `,
+      `
+        CREATE TABLE IF NOT EXISTS lp_program_states (
+          block_id TEXT PRIMARY KEY NOT NULL,
+          state_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (block_id) REFERENCES training_blocks(id) ON DELETE CASCADE
+        );
+      `,
+      `
+        CREATE TABLE IF NOT EXISTS lp_lift_progression_states (
+          id TEXT PRIMARY KEY NOT NULL,
+          block_id TEXT NOT NULL,
+          lift_slug TEXT NOT NULL,
+          state_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (block_id) REFERENCES training_blocks(id) ON DELETE CASCADE,
+          UNIQUE (block_id, lift_slug)
+        );
+      `,
+      `
+        CREATE TABLE IF NOT EXISTS lp_checkpoint_results (
+          id TEXT PRIMARY KEY NOT NULL,
+          block_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          lift_slug TEXT NOT NULL,
+          checkpoint_type TEXT NOT NULL,
+          expected_load REAL NOT NULL,
+          actual_load REAL NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (block_id) REFERENCES training_blocks(id) ON DELETE CASCADE,
+          FOREIGN KEY (session_id) REFERENCES planned_sessions(id) ON DELETE CASCADE
+        );
+      `,
+      `
+        CREATE TABLE IF NOT EXISTS lp_goal_progress (
+          id TEXT PRIMARY KEY NOT NULL,
+          block_id TEXT NOT NULL,
+          lift_slug TEXT NOT NULL,
+          target_weight REAL NOT NULL,
+          target_test_type TEXT NOT NULL,
+          expected_checkpoint_load REAL,
+          actual_checkpoint_load REAL,
+          status TEXT NOT NULL,
+          remaining_delta REAL NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (block_id) REFERENCES training_blocks(id) ON DELETE CASCADE,
+          UNIQUE (block_id, lift_slug)
+        );
+      `,
+      `
+        CREATE TABLE IF NOT EXISTS lp_mesocycle_extensions (
+          id TEXT PRIMARY KEY NOT NULL,
+          block_id TEXT NOT NULL,
+          triggered_by_checkpoint_result_id TEXT,
+          added_phase TEXT NOT NULL,
+          added_weeks INTEGER NOT NULL,
+          reason TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (block_id) REFERENCES training_blocks(id) ON DELETE CASCADE,
+          FOREIGN KEY (triggered_by_checkpoint_result_id) REFERENCES lp_checkpoint_results(id) ON DELETE SET NULL
+        );
+      `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_lp_checkpoint_results_block
+        ON lp_checkpoint_results (block_id, created_at DESC);
+      `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_lp_mesocycle_extensions_block
+        ON lp_mesocycle_extensions (block_id, created_at DESC);
+      `,
+    ],
+  },
 ] as const;
 
 export const latestSchemaVersion = migrations.at(-1)?.version ?? 0;

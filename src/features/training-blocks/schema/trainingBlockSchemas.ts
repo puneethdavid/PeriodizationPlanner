@@ -33,6 +33,8 @@ export const liftGoalSchema = z.enum(["strength", "hypertrophy", "power", "techn
 export const lpProgramLevelSchema = z.enum(["beginner", "intermediate", "advanced"]);
 export const lpProgramPhaseSchema = z.enum(["volume", "strength", "taper", "final-test"]);
 export const lpCheckpointTypeSchema = z.enum(["five-rep-max", "three-rep-max", "two-rep-max"]);
+export const progressionTierSchema = z.enum(["minimum", "medium", "high"]);
+export const goalProgressStatusSchema = z.enum(["on-track", "behind", "achieved"]);
 export const trainingWeekdaySchema = z.enum([
   "monday",
   "tuesday",
@@ -58,6 +60,11 @@ export const adaptationEventTypeSchema = z.enum([
   "generation",
   "progression-adjustment",
   "deload-adjustment",
+  "checkpoint-recalibration",
+  "phase-transition",
+  "goal-progress",
+  "goal-extension",
+  "planned-taper",
 ]);
 export const explanationOwnerTypeSchema = z.enum([
   "training-block",
@@ -239,6 +246,15 @@ export const blockRevisionSchema = z.object({
   createdAt: isoDateTimeSchema,
 });
 
+export const plannedSessionLpMetadataSchema = z.object({
+  phase: lpProgramPhaseSchema.nullable().default(null),
+  phaseWeekIndex: positiveIntegerSchema.nullable().default(null),
+  checkpointType: lpCheckpointTypeSchema.nullable().default(null),
+  mesocycleIndex: positiveIntegerSchema.nullable().default(null),
+  isTaperSession: z.boolean().default(false),
+  goalLiftSlugs: z.array(liftSlugSchema).default([]),
+});
+
 export const plannedSetSchema = z.object({
   id: nonEmptyStringSchema,
   plannedExerciseId: nonEmptyStringSchema,
@@ -273,6 +289,7 @@ export const plannedSessionSchema = z.object({
   sessionType: sessionTypeSchema,
   title: nonEmptyStringSchema,
   status: plannedSessionStatusSchema,
+  lpMetadata: plannedSessionLpMetadataSchema.nullable().default(null),
   plannedExercises: z.array(plannedExerciseSchema).min(1),
 });
 
@@ -326,6 +343,71 @@ export const lpProgramStructureSchema = z.object({
   phases: z.array(lpPhaseDefinitionSchema).min(1),
 });
 
+export const lpProgramStateSchema = z.object({
+  id: nonEmptyStringSchema,
+  blockId: nonEmptyStringSchema,
+  programLevel: lpProgramLevelSchema,
+  currentPhase: lpProgramPhaseSchema,
+  currentMesocycleIndex: positiveIntegerSchema,
+  nextCheckpointType: lpCheckpointTypeSchema.nullable(),
+  activeDeloadUntilSessionIndex: positiveIntegerSchema.nullable(),
+  lastCheckpointResultId: nonEmptyStringSchema.nullable(),
+  updatedAt: isoDateTimeSchema,
+});
+
+export const lpLiftProgressionStateSchema = z.object({
+  id: nonEmptyStringSchema,
+  blockId: nonEmptyStringSchema,
+  liftSlug: liftSlugSchema,
+  unit: loadUnitSchema,
+  currentPhase: lpProgramPhaseSchema,
+  effectiveBaselineLoad: z.number().positive(),
+  phaseEntryLoad: z.number().positive(),
+  currentIncrementTier: progressionTierSchema,
+  lastExpectedLoad: nonNegativeNumberSchema.nullable(),
+  lastLoggedLoad: nonNegativeNumberSchema.nullable(),
+  lastSuccessfulLoad: nonNegativeNumberSchema.nullable(),
+  consecutiveSameWeightMisses: z.number().int().min(0),
+  lastAuthoritativeWeekIndex: z.number().int().positive().nullable(),
+  checkpointWorthOverperformance: z.boolean().default(false),
+  updatedAt: isoDateTimeSchema,
+});
+
+export const lpCheckpointResultSchema = z.object({
+  id: nonEmptyStringSchema,
+  blockId: nonEmptyStringSchema,
+  sessionId: nonEmptyStringSchema,
+  liftSlug: liftSlugSchema,
+  checkpointType: lpCheckpointTypeSchema,
+  expectedLoad: nonNegativeNumberSchema,
+  actualLoad: nonNegativeNumberSchema,
+  status: z.enum(["on-track", "behind", "achieved"]),
+  createdAt: isoDateTimeSchema,
+});
+
+export const lpGoalProgressSchema = z.object({
+  id: nonEmptyStringSchema,
+  blockId: nonEmptyStringSchema,
+  liftSlug: liftSlugSchema,
+  targetWeight: z.number().positive(),
+  targetTestType: lpCheckpointTypeSchema,
+  expectedCheckpointLoad: nonNegativeNumberSchema.nullable(),
+  actualCheckpointLoad: nonNegativeNumberSchema.nullable(),
+  status: goalProgressStatusSchema,
+  remainingDelta: nonNegativeNumberSchema,
+  updatedAt: isoDateTimeSchema,
+});
+
+export const lpMesocycleExtensionSchema = z.object({
+  id: nonEmptyStringSchema,
+  blockId: nonEmptyStringSchema,
+  triggeredByCheckpointResultId: nonEmptyStringSchema.nullable(),
+  addedPhase: lpProgramPhaseSchema,
+  addedWeeks: positiveIntegerSchema,
+  reason: nonEmptyStringSchema,
+  createdAt: isoDateTimeSchema,
+});
+
 export const generatedTrainingPlanSchema = z.object({
   block: trainingBlockSchema,
   revision: blockRevisionSchema,
@@ -344,6 +426,8 @@ export type LiftGoal = z.infer<typeof liftGoalSchema>;
 export type LpProgramLevel = z.infer<typeof lpProgramLevelSchema>;
 export type LpProgramPhase = z.infer<typeof lpProgramPhaseSchema>;
 export type LpCheckpointType = z.infer<typeof lpCheckpointTypeSchema>;
+export type ProgressionTier = z.infer<typeof progressionTierSchema>;
+export type GoalProgressStatus = z.infer<typeof goalProgressStatusSchema>;
 export type TargetLiftGoal = z.infer<typeof targetLiftGoalSchema>;
 export type BlockConfiguration = z.infer<typeof blockConfigurationSchema>;
 export type ValidatedBlockConfiguration = z.infer<typeof validatedBlockConfigurationSchema>;
@@ -351,6 +435,7 @@ export type BenchmarkSnapshotItem = z.infer<typeof benchmarkSnapshotItemSchema>;
 export type BenchmarkSnapshot = z.infer<typeof benchmarkSnapshotSchema>;
 export type TrainingBlock = z.infer<typeof trainingBlockSchema>;
 export type BlockRevision = z.infer<typeof blockRevisionSchema>;
+export type PlannedSessionLpMetadata = z.infer<typeof plannedSessionLpMetadataSchema>;
 export type PlannedSet = z.infer<typeof plannedSetSchema>;
 export type PlannedExercise = z.infer<typeof plannedExerciseSchema>;
 export type PlannedSession = z.infer<typeof plannedSessionSchema>;
@@ -360,4 +445,9 @@ export type AdaptationEvent = z.infer<typeof adaptationEventSchema>;
 export type ExplanationRecord = z.infer<typeof explanationRecordSchema>;
 export type LpPhaseDefinition = z.infer<typeof lpPhaseDefinitionSchema>;
 export type LpProgramStructure = z.infer<typeof lpProgramStructureSchema>;
+export type LpProgramState = z.infer<typeof lpProgramStateSchema>;
+export type LpLiftProgressionState = z.infer<typeof lpLiftProgressionStateSchema>;
+export type LpCheckpointResult = z.infer<typeof lpCheckpointResultSchema>;
+export type LpGoalProgress = z.infer<typeof lpGoalProgressSchema>;
+export type LpMesocycleExtension = z.infer<typeof lpMesocycleExtensionSchema>;
 export type GeneratedTrainingPlan = z.infer<typeof generatedTrainingPlanSchema>;

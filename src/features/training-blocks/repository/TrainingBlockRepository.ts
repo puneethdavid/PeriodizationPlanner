@@ -10,7 +10,12 @@ import {
   blockSchedulingPreferencesSchema,
   generatedTrainingPlanSchema,
   loggedSetResultSchema,
+  lpCheckpointResultSchema,
+  lpGoalProgressSchema,
+  lpLiftProgressionStateSchema,
+  lpProgramStateSchema,
   plannedExerciseSchema,
+  plannedSessionLpMetadataSchema,
   plannedSessionSchema,
   plannedSetSchema,
   trainingBlockSchema,
@@ -23,8 +28,13 @@ import {
   type GeneratedTrainingPlan,
   type LoggedSetResult,
   type LiftGoal,
+  type LpCheckpointResult,
+  type LpGoalProgress,
+  type LpLiftProgressionState,
+  type LpProgramState,
   type PlannedExercise,
   type PlannedSession,
+  type PlannedSessionLpMetadata,
   type PlannedSet,
   type TrainingBlock,
   type WorkoutResult,
@@ -47,6 +57,11 @@ import {
   validateBlockConfiguration,
 } from "@/features/training-blocks/services/blockConfigurationService";
 import { buildAdaptationExplanationArtifacts } from "@/features/training-blocks/services/adaptationExplanationBuilder";
+import {
+  createInitialLiftProgressionStates,
+  createInitialLpProgramState,
+} from "@/features/training-blocks/services/lpProgressionStateService";
+import { deriveLpProgramLevel } from "@/features/training-blocks/services/linearPeriodizationProgramService";
 import {
   parseSerializedTrainingWeekdays,
   serializeTrainingWeekdays,
@@ -110,6 +125,7 @@ type PlannedSessionRow = {
   session_type: PlannedSession["sessionType"];
   title: string;
   status: PlannedSession["status"];
+  lp_metadata: string | null;
 };
 
 type BlockSetupPreferencesRow = {
@@ -201,6 +217,45 @@ type AdaptationSummaryRow = {
   event_body: string | null;
   revision_headline: string | null;
   revision_body: string | null;
+};
+
+type LpProgramStateRow = {
+  block_id: string;
+  state_json: string;
+  updated_at: string;
+};
+
+type LpLiftProgressionStateRow = {
+  id: string;
+  block_id: string;
+  lift_slug: string;
+  state_json: string;
+  updated_at: string;
+};
+
+type LpCheckpointResultRow = {
+  id: string;
+  block_id: string;
+  session_id: string;
+  lift_slug: string;
+  checkpoint_type: string;
+  expected_load: number;
+  actual_load: number;
+  status: string;
+  created_at: string;
+};
+
+type LpGoalProgressRow = {
+  id: string;
+  block_id: string;
+  lift_slug: string;
+  target_weight: number;
+  target_test_type: string;
+  expected_checkpoint_load: number | null;
+  actual_checkpoint_load: number | null;
+  status: string;
+  remaining_delta: number;
+  updated_at: string;
 };
 
 export type ArchivedTrainingBlockSummary = {
@@ -375,9 +430,68 @@ const mapPlannedSessionRow = (
       sessionType: row.session_type,
       title: row.title,
       status: row.status,
+      lpMetadata:
+        row.lp_metadata === null
+          ? null
+          : parseWithSchema(
+              plannedSessionLpMetadataSchema,
+              JSON.parse(row.lp_metadata) as unknown,
+              "training-blocks.planned-session-lp-metadata-row",
+            ),
       plannedExercises,
     },
     "training-blocks.planned-session-row",
+  );
+
+const mapLpProgramStateRow = (row: LpProgramStateRow): LpProgramState =>
+  parseWithSchema(
+    lpProgramStateSchema,
+    JSON.parse(row.state_json) as unknown,
+    "training-blocks.lp-program-state-row",
+  );
+
+const mapLpLiftProgressionStateRow = (
+  row: LpLiftProgressionStateRow,
+): LpLiftProgressionState =>
+  parseWithSchema(
+    lpLiftProgressionStateSchema,
+    JSON.parse(row.state_json) as unknown,
+    "training-blocks.lp-lift-progression-state-row",
+  );
+
+const mapLpCheckpointResultRow = (row: LpCheckpointResultRow): LpCheckpointResult =>
+  parseWithSchema(
+    lpCheckpointResultSchema,
+    {
+      id: row.id,
+      blockId: row.block_id,
+      sessionId: row.session_id,
+      liftSlug: row.lift_slug,
+      checkpointType: row.checkpoint_type,
+      expectedLoad: row.expected_load,
+      actualLoad: row.actual_load,
+      status: row.status,
+      createdAt: row.created_at,
+    },
+    "training-blocks.lp-checkpoint-result-row",
+  );
+
+const mapLpGoalProgressRow = (row: LpGoalProgressRow): LpGoalProgress =>
+  parseWithSchema(
+    lpGoalProgressSchema,
+    {
+      id: row.id,
+      blockId: row.block_id,
+      liftSlug: row.lift_slug,
+      targetWeight: row.target_weight,
+      targetTestType: row.target_test_type,
+      expectedCheckpointLoad: row.expected_checkpoint_load,
+      actualCheckpointLoad: row.actual_checkpoint_load,
+      status: row.status,
+      remainingDelta: row.remaining_delta,
+      updatedAt: row.updated_at,
+    },
+    "training-blocks.lp-goal-progress-row",
   );
 
 const mapWorkoutResultRow = (row: WorkoutResultRow): WorkoutResult =>
@@ -470,6 +584,11 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
   async resetTrainingBlockDataAsync(): Promise<void> {
     await this.database.withExclusiveTransactionAsync(async (transaction) => {
       await transaction.execAsync(`
+        DELETE FROM lp_mesocycle_extensions;
+        DELETE FROM lp_goal_progress;
+        DELETE FROM lp_checkpoint_results;
+        DELETE FROM lp_lift_progression_states;
+        DELETE FROM lp_program_states;
         DELETE FROM explanation_records;
         DELETE FROM adaptation_events;
         DELETE FROM logged_set_results;
@@ -628,6 +747,202 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
     return validatedConfiguration;
   }
 
+  async getLpProgramStateAsync(blockId: string): Promise<LpProgramState | null> {
+    const row = await this.database.getFirstAsync<LpProgramStateRow>(
+      `
+        SELECT
+          block_id,
+          state_json,
+          updated_at
+        FROM lp_program_states
+        WHERE block_id = ?
+        LIMIT 1
+      `,
+      blockId,
+    );
+
+    return row === null ? null : mapLpProgramStateRow(row);
+  }
+
+  async getLpLiftProgressionStatesAsync(
+    blockId: string,
+  ): Promise<readonly LpLiftProgressionState[]> {
+    const rows = await this.database.getAllAsync<LpLiftProgressionStateRow>(
+      `
+        SELECT
+          id,
+          block_id,
+          lift_slug,
+          state_json,
+          updated_at
+        FROM lp_lift_progression_states
+        WHERE block_id = ?
+        ORDER BY lift_slug ASC
+      `,
+      blockId,
+    );
+
+    return rows.map((row) => mapLpLiftProgressionStateRow(row));
+  }
+
+  async getLpGoalProgressAsync(blockId: string): Promise<readonly LpGoalProgress[]> {
+    const rows = await this.database.getAllAsync<LpGoalProgressRow>(
+      `
+        SELECT
+          id,
+          block_id,
+          lift_slug,
+          target_weight,
+          target_test_type,
+          expected_checkpoint_load,
+          actual_checkpoint_load,
+          status,
+          remaining_delta,
+          updated_at
+        FROM lp_goal_progress
+        WHERE block_id = ?
+        ORDER BY lift_slug ASC
+      `,
+      blockId,
+    );
+
+    return rows.map((row) => mapLpGoalProgressRow(row));
+  }
+
+  async getLpCheckpointResultsAsync(blockId: string): Promise<readonly LpCheckpointResult[]> {
+    const rows = await this.database.getAllAsync<LpCheckpointResultRow>(
+      `
+        SELECT
+          id,
+          block_id,
+          session_id,
+          lift_slug,
+          checkpoint_type,
+          expected_load,
+          actual_load,
+          status,
+          created_at
+        FROM lp_checkpoint_results
+        WHERE block_id = ?
+        ORDER BY created_at DESC, id DESC
+      `,
+      blockId,
+    );
+
+    return rows.map((row) => mapLpCheckpointResultRow(row));
+  }
+
+  private async persistInitialLpStateAsync(
+    database: SQLiteDatabase,
+    input: {
+      blockId: string;
+      plan: GeneratedTrainingPlan;
+      sourceBenchmarks: readonly Benchmark[];
+    },
+  ): Promise<void> {
+    const updatedAt = input.plan.block.updatedAt;
+    const programState = createInitialLpProgramState({
+      blockId: input.blockId,
+      programLevel: deriveLpProgramLevel(input.sourceBenchmarks),
+      updatedAt,
+    });
+    const liftStates = createInitialLiftProgressionStates({
+      blockId: input.blockId,
+      benchmarks: input.sourceBenchmarks,
+      updatedAt,
+    });
+    const targetGoals = input.plan.block.blockConfiguration?.targetLiftGoals ?? [];
+
+    await database.runAsync(
+      `
+        INSERT OR REPLACE INTO lp_program_states (
+          block_id,
+          state_json,
+          updated_at
+        ) VALUES (?, ?, ?)
+      `,
+      input.blockId,
+      JSON.stringify(programState),
+      updatedAt,
+    );
+
+    for (const liftState of liftStates) {
+      await database.runAsync(
+        `
+          INSERT OR REPLACE INTO lp_lift_progression_states (
+            id,
+            block_id,
+            lift_slug,
+            state_json,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?)
+        `,
+        liftState.id,
+        liftState.blockId,
+        liftState.liftSlug,
+        JSON.stringify(liftState),
+        updatedAt,
+      );
+    }
+
+    for (const goal of targetGoals) {
+      const sourceBenchmark = input.sourceBenchmarks.find(
+        (benchmark) => benchmark.liftSlug === goal.liftSlug,
+      );
+      const progress = parseWithSchema(
+        lpGoalProgressSchema,
+        {
+          id: `lp_goal_${input.blockId}_${goal.liftSlug}`,
+          blockId: input.blockId,
+          liftSlug: goal.liftSlug,
+          targetWeight: goal.targetWeight,
+          targetTestType: goal.targetTestType,
+          expectedCheckpointLoad: null,
+          actualCheckpointLoad: null,
+          status: "on-track",
+          remainingDelta: Math.max(
+            0,
+            Number(
+              (
+                goal.targetWeight -
+                (sourceBenchmark?.value ?? 0)
+              ).toFixed(2),
+            ),
+          ),
+          updatedAt,
+        },
+        "training-blocks.initial-lp-goal-progress",
+      );
+
+      await database.runAsync(
+        `
+          INSERT OR REPLACE INTO lp_goal_progress (
+            id,
+            block_id,
+            lift_slug,
+            target_weight,
+            target_test_type,
+            expected_checkpoint_load,
+            actual_checkpoint_load,
+            status,
+            remaining_delta,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        progress.id,
+        progress.blockId,
+        progress.liftSlug,
+        progress.targetWeight,
+        progress.targetTestType,
+        progress.expectedCheckpointLoad,
+        progress.actualCheckpointLoad,
+        progress.status,
+        progress.remainingDelta,
+        progress.updatedAt,
+      );
+    }
+  }
+
   private async persistGeneratedTrainingPlanWithDatabaseAsync(
     database: SQLiteDatabase,
     plan: GeneratedTrainingPlan,
@@ -777,19 +1092,20 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
     for (const session of plan.sessions) {
       await database.runAsync(
         `
-          INSERT INTO planned_sessions (
-            id,
-            block_id,
-            block_revision_id,
-            scheduled_date,
-            scheduled_weekday,
-            session_index,
-            week_index,
-            session_type,
-            title,
-            status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
+        INSERT INTO planned_sessions (
+          id,
+          block_id,
+          block_revision_id,
+          scheduled_date,
+          scheduled_weekday,
+          session_index,
+          week_index,
+          session_type,
+          title,
+          status,
+          lp_metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
         session.id,
         session.blockId,
         session.blockRevisionId,
@@ -800,6 +1116,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
         session.sessionType,
         session.title,
         session.status,
+        session.lpMetadata === null ? null : JSON.stringify(session.lpMetadata),
       );
 
       for (const exercise of session.plannedExercises) {
@@ -853,6 +1170,12 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       }
     }
 
+    await this.persistInitialLpStateAsync(database, {
+      blockId: plan.block.id,
+      plan,
+      sourceBenchmarks,
+    });
+
     return plan;
   }
 
@@ -904,6 +1227,11 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
     }
 
     await database.runAsync("DELETE FROM block_revisions WHERE id = ?", input.revisionId);
+    await database.runAsync("DELETE FROM lp_mesocycle_extensions WHERE block_id = ?", input.blockId);
+    await database.runAsync("DELETE FROM lp_goal_progress WHERE block_id = ?", input.blockId);
+    await database.runAsync("DELETE FROM lp_checkpoint_results WHERE block_id = ?", input.blockId);
+    await database.runAsync("DELETE FROM lp_lift_progression_states WHERE block_id = ?", input.blockId);
+    await database.runAsync("DELETE FROM lp_program_states WHERE block_id = ?", input.blockId);
     await database.runAsync("DELETE FROM training_blocks WHERE id = ?", input.blockId);
     await database.runAsync(
       "DELETE FROM benchmark_snapshot_items WHERE snapshot_id = ?",
@@ -1173,7 +1501,8 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           week_index,
           session_type,
           title,
-          status
+          status,
+          lp_metadata
         FROM planned_sessions
         WHERE block_id = ?
         ORDER BY session_index ASC
@@ -1321,7 +1650,8 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           week_index,
           session_type,
           title,
-          status
+          status,
+          lp_metadata
         FROM planned_sessions
         WHERE id = ?
         LIMIT 1
@@ -1351,7 +1681,8 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           week_index,
           session_type,
           title,
-          status
+          status,
+          lp_metadata
         FROM planned_sessions
         WHERE id = ?
         LIMIT 1
@@ -1534,7 +1865,8 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
                 scheduled_weekday = ?,
                 title = ?,
                 session_type = ?,
-                status = ?
+                status = ?,
+                lp_metadata = ?
             WHERE id = ?
           `,
           session.blockRevisionId,
@@ -1543,6 +1875,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           session.title,
           session.sessionType,
           session.status,
+          session.lpMetadata === null ? null : JSON.stringify(session.lpMetadata),
           session.id,
         );
 
