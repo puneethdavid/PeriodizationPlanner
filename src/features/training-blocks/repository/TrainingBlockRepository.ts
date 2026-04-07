@@ -29,6 +29,7 @@ import {
   type TrainingBlock,
   type WorkoutResult,
 } from "@/features/training-blocks/schema/trainingBlockSchemas";
+import type { AdaptationPlanReadStore, AdaptationTrigger } from "@/features/training-blocks/services/adaptationEngineContracts";
 import {
   generateFixedTrainingBlock,
   type FixedBlockGeneratorOptions,
@@ -375,7 +376,7 @@ const mapLoggedSetResultRow = (row: LoggedSetResultRow): LoggedSetResult =>
 
 const makeSqlPlaceholders = (count: number): string => Array.from({ length: count }, () => "?").join(", ");
 
-export class TrainingBlockRepository extends BaseRepository {
+export class TrainingBlockRepository extends BaseRepository implements AdaptationPlanReadStore {
   constructor(context: RepositoryContext) {
     super(context);
   }
@@ -1198,6 +1199,52 @@ export class TrainingBlockRepository extends BaseRepository {
     );
   }
 
+  async getActivePlanSnapshotAsync(): Promise<{
+    plan: GeneratedTrainingPlan;
+    completedSessions: readonly PlannedSession[];
+    futureSessions: readonly PlannedSession[];
+  } | null> {
+    const plan = await this.getActiveTrainingBlockAsync();
+
+    if (plan === null) {
+      return null;
+    }
+
+    const completedSessions = plan.sessions.filter((session) => session.status !== "planned");
+    const futureSessions = plan.sessions.filter((session) => session.status === "planned");
+
+    return {
+      plan,
+      completedSessions,
+      futureSessions,
+    };
+  }
+
+  async getLatestBlockRevisionAsync(blockId: string): Promise<BlockRevision | null> {
+    const revisionRow = await this.database.getFirstAsync<BlockRevisionRow>(
+      `
+        SELECT
+          id,
+          block_id,
+          revision_number,
+          reason,
+          summary,
+          created_at
+        FROM block_revisions
+        WHERE block_id = ?
+        ORDER BY revision_number DESC
+        LIMIT 1
+      `,
+      blockId,
+    );
+
+    if (revisionRow === null) {
+      return null;
+    }
+
+    return mapBlockRevisionRow(revisionRow);
+  }
+
   async getPlannedSessionDetailAsync(sessionId: string): Promise<PlannedSession | null> {
     const sessionRow = await this.database.getFirstAsync<PlannedSessionRow>(
       `
@@ -1342,6 +1389,21 @@ export class TrainingBlockRepository extends BaseRepository {
       session: mapPlannedSessionRow(sessionRow, plannedExercises),
       workoutResult,
       loggedSetResults,
+    };
+  }
+
+  async getAdaptationTriggerAsync(sessionId: string): Promise<AdaptationTrigger | null> {
+    const sessionReview = await this.getWorkoutSessionReviewAsync(sessionId);
+
+    if (sessionReview === null || sessionReview.workoutResult === null) {
+      return null;
+    }
+
+    return {
+      sessionId,
+      completedSession: sessionReview.session,
+      workoutResult: sessionReview.workoutResult,
+      loggedSetResults: sessionReview.loggedSetResults,
     };
   }
 

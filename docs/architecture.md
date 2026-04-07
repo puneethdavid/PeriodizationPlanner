@@ -41,6 +41,21 @@ src/features/training-blocks/
   ui/
 ```
 
+### Deterministic Adaptation Boundary
+
+- Adaptation belongs in the training feature as an application service layered on top of explicit read and write contracts.
+- Logged workout results remain raw historical facts in persistence. Adaptation consumes those facts and proposes a separate plan revision instead of mutating workout logs into "the new truth."
+- Pure deterministic rule functions should accept an adaptation evaluation context and return explicit signals plus proposed future-session adjustments.
+- Repository reads should provide:
+  - the active plan snapshot
+  - the triggering completed session with logged results
+  - the latest persisted block revision
+- Repository writes should persist:
+  - a new block revision
+  - updated future sessions for that revision
+  - later adaptation events and explanation records
+- UI should trigger adaptation through application services and render the resulting revision summary; it should not infer progression or deload logic on its own.
+
 ### Persistence
 
 - SQLite repositories persist and retrieve app data for the MVP.
