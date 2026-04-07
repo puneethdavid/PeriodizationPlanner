@@ -30,6 +30,9 @@ export const benchmarkTypeSchema = z.enum([
 export const loadUnitSchema = z.enum(["kg", "lb"]);
 export const blockDurationWeeksSchema = z.union([z.literal(4), z.literal(6), z.literal(8)]);
 export const liftGoalSchema = z.enum(["strength", "hypertrophy", "power", "technique"]);
+export const lpProgramLevelSchema = z.enum(["beginner", "intermediate", "advanced"]);
+export const lpProgramPhaseSchema = z.enum(["volume", "strength", "taper", "final-test"]);
+export const lpCheckpointTypeSchema = z.enum(["five-rep-max", "three-rep-max", "two-rep-max"]);
 export const trainingWeekdaySchema = z.enum([
   "monday",
   "tuesday",
@@ -286,6 +289,17 @@ export const explanationRecordSchema = z.object({
   body: nonEmptyStringSchema,
 });
 
+export const lpPhaseDefinitionSchema = z.object({
+  phase: lpProgramPhaseSchema,
+  durationWeeks: positiveIntegerSchema,
+  checkpointType: lpCheckpointTypeSchema.nullable(),
+});
+
+export const lpProgramStructureSchema = z.object({
+  level: lpProgramLevelSchema,
+  phases: z.array(lpPhaseDefinitionSchema).min(1),
+});
+
 export const generatedTrainingPlanSchema = z.object({
   block: trainingBlockSchema,
   revision: blockRevisionSchema,
@@ -301,6 +315,9 @@ export type ValidatedBlockSchedulingPreferences = z.infer<
 >;
 export type BlockDurationWeeks = z.infer<typeof blockDurationWeeksSchema>;
 export type LiftGoal = z.infer<typeof liftGoalSchema>;
+export type LpProgramLevel = z.infer<typeof lpProgramLevelSchema>;
+export type LpProgramPhase = z.infer<typeof lpProgramPhaseSchema>;
+export type LpCheckpointType = z.infer<typeof lpCheckpointTypeSchema>;
 export type BlockConfiguration = z.infer<typeof blockConfigurationSchema>;
 export type ValidatedBlockConfiguration = z.infer<typeof validatedBlockConfigurationSchema>;
 export type BenchmarkSnapshotItem = z.infer<typeof benchmarkSnapshotItemSchema>;
@@ -314,4 +331,6 @@ export type WorkoutResult = z.infer<typeof workoutResultSchema>;
 export type LoggedSetResult = z.infer<typeof loggedSetResultSchema>;
 export type AdaptationEvent = z.infer<typeof adaptationEventSchema>;
 export type ExplanationRecord = z.infer<typeof explanationRecordSchema>;
+export type LpPhaseDefinition = z.infer<typeof lpPhaseDefinitionSchema>;
+export type LpProgramStructure = z.infer<typeof lpProgramStructureSchema>;
 export type GeneratedTrainingPlan = z.infer<typeof generatedTrainingPlanSchema>;

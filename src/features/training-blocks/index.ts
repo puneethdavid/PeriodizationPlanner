@@ -8,6 +8,7 @@ export * from "@/features/training-blocks/services/adaptationHeuristics";
 export * from "@/features/training-blocks/services/adaptationRules";
 export * from "@/features/training-blocks/services/adaptationRevisionBuilder";
 export * from "@/features/training-blocks/services/adaptationEngineService";
+export * from "@/features/training-blocks/services/linearPeriodizationProgramService";
 export * from "@/features/training-blocks/services/trainingBlockAdaptationService";
 export * from "@/features/training-blocks/services/devTrainingSeedService";
 export * from "@/features/training-blocks/services/fixedBlockGenerator";
