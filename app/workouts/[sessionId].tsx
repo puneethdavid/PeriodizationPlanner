@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
   Button,
@@ -12,26 +12,79 @@ import {
   ScreenContainer,
 } from "@/components/ui";
 import { useCompletedWorkoutDetailQuery } from "@/features/training-blocks/queries/useCompletedWorkoutDetailQuery";
-import { useQuickCompleteSessionMutation } from "@/features/training-blocks/queries/useQuickCompleteSessionMutation";
-import { useSaveAdjustedSessionResultsMutation } from "@/features/training-blocks/queries/useSaveAdjustedSessionResultsMutation";
+import { useSaveWorkoutSessionMutation } from "@/features/training-blocks/queries/useSaveWorkoutSessionMutation";
 import { formatTrainingWeekday } from "@/features/training-blocks/services/blockSchedulingService";
 import { getSessionKindLabel, getSessionStatusLabel } from "@/features/training-blocks/services/sessionPresentation";
 import { appTheme } from "@/theme/appTheme";
+
+type EditableSetValues = {
+  reps: string;
+  load: string;
+  isCompleted: boolean;
+};
+
+const deriveCompletionStatus = (
+  values: readonly EditableSetValues[],
+): "completed" | "partial" | "missed" => {
+  const completedCount = values.filter((value) => value.isCompleted).length;
+
+  if (completedCount === 0) {
+    return "missed";
+  }
+
+  if (completedCount === values.length) {
+    return "completed";
+  }
+
+  return "partial";
+};
 
 const WorkoutDetailScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams<{ sessionId?: string }>();
   const sessionId = typeof params.sessionId === "string" ? params.sessionId : null;
   const workoutReviewQuery = useCompletedWorkoutDetailQuery(sessionId);
-  const quickCompleteSessionMutation = useQuickCompleteSessionMutation(sessionId);
-  const saveAdjustedSessionResultsMutation = useSaveAdjustedSessionResultsMutation(sessionId);
-  const [isAdjustedEntryVisible, setIsAdjustedEntryVisible] = useState(false);
-  const [completionStatus, setCompletionStatus] = useState<"completed" | "partial" | "missed">(
-    "completed",
+  const saveWorkoutSessionMutation = useSaveWorkoutSessionMutation(sessionId);
+  const [editableSetValues, setEditableSetValues] = useState<Record<string, EditableSetValues>>({});
+  const workoutReviewData = workoutReviewQuery.data;
+  const loggedSetResultByPlannedSetId = useMemo(
+    () =>
+      new Map(
+        (workoutReviewData?.loggedSetResults ?? [])
+          .filter((loggedSetResult) => loggedSetResult.plannedSetId !== null)
+          .map((loggedSetResult) => [loggedSetResult.plannedSetId as string, loggedSetResult] as const),
+      ),
+    [workoutReviewData],
   );
-  const [adjustedValues, setAdjustedValues] = useState<Record<string, { reps: string; load: string }>>(
-    {},
+
+  useEffect(() => {
+    if (workoutReviewData === null || workoutReviewData === undefined) {
+      return;
+    }
+
+    const nextEditableValues: Record<string, EditableSetValues> = {};
+
+    for (const exercise of workoutReviewData.session.plannedExercises) {
+      for (const plannedSet of exercise.plannedSets) {
+        const loggedSetResult = loggedSetResultByPlannedSetId.get(plannedSet.id);
+
+        nextEditableValues[plannedSet.id] = {
+          reps: String(loggedSetResult?.actualReps ?? plannedSet.targetReps),
+          load: String(loggedSetResult?.actualLoad ?? plannedSet.targetLoad),
+          isCompleted: loggedSetResult?.isCompleted ?? true,
+        };
+      }
+    }
+
+    setEditableSetValues(nextEditableValues);
+  }, [loggedSetResultByPlannedSetId, workoutReviewData]);
+
+  const allEditableValues = useMemo(
+    () => Object.values(editableSetValues),
+    [editableSetValues],
   );
+  const completionStatus = deriveCompletionStatus(allEditableValues);
+  const completedSetCount = allEditableValues.filter((value) => value.isCompleted).length;
 
   if (workoutReviewQuery.isLoading) {
     return (
@@ -50,7 +103,7 @@ const WorkoutDetailScreen = () => {
     );
   }
 
-  if (sessionId === null || workoutReviewQuery.data === null || workoutReviewQuery.data === undefined) {
+  if (sessionId === null || workoutReviewData === null || workoutReviewData === undefined) {
     return (
       <ScreenContainer
         eyebrow="Workout Detail"
@@ -76,7 +129,7 @@ const WorkoutDetailScreen = () => {
     );
   }
 
-  const workoutReview = workoutReviewQuery.data;
+  const workoutReview = workoutReviewData;
   const plannedSession = workoutReview.session;
   const workoutResult = workoutReview.workoutResult;
   const isCompleted = plannedSession.status === "completed";
@@ -86,38 +139,33 @@ const WorkoutDetailScreen = () => {
   const phaseLabel = plannedSession.lpMetadata?.phase ?? null;
   const checkpointLabel = plannedSession.lpMetadata?.checkpointType ?? null;
   const scheduledWeekdayLabel = formatTrainingWeekday(plannedSession.scheduledWeekday);
-  const loggedSetResultByPlannedSetId = new Map(
-    workoutReview.loggedSetResults
-      .filter((loggedSetResult) => loggedSetResult.plannedSetId !== null)
-      .map((loggedSetResult) => [loggedSetResult.plannedSetId as string, loggedSetResult] as const),
-  );
-
-  const updateAdjustedValue = (
+  const updateEditableSetValue = (
     plannedSetId: string,
-    field: "reps" | "load",
-    value: string,
+    field: "reps" | "load" | "isCompleted",
+    value: string | boolean,
   ) => {
-    setAdjustedValues((current) => ({
+    setEditableSetValues((current) => ({
       ...current,
       [plannedSetId]: {
         reps: current[plannedSetId]?.reps ?? "",
         load: current[plannedSetId]?.load ?? "",
+        isCompleted: current[plannedSetId]?.isCompleted ?? true,
         [field]: value,
       },
     }));
   };
 
-  const handleSaveAdjustedResults = async () => {
+  const handleSaveWorkout = async () => {
     if (sessionId === null) {
       return;
     }
 
-    await saveAdjustedSessionResultsMutation.mutateAsync({
+    await saveWorkoutSessionMutation.mutateAsync({
       sessionId,
       completionStatus,
       setResults: plannedSession.plannedExercises.flatMap((exercise) =>
         exercise.plannedSets.map((plannedSet) => {
-          const adjustedValue = adjustedValues[plannedSet.id];
+          const adjustedValue = editableSetValues[plannedSet.id];
           const parsedReps =
             adjustedValue?.reps.trim() === undefined || adjustedValue?.reps.trim() === ""
               ? plannedSet.targetReps
@@ -133,13 +181,11 @@ const WorkoutDetailScreen = () => {
             actualReps: Number.isFinite(parsedReps) ? parsedReps : plannedSet.targetReps,
             actualLoad: Number.isFinite(parsedLoad) ? parsedLoad : plannedSet.targetLoad,
             actualRpe: plannedSet.targetRpe,
-            isCompleted: completionStatus !== "missed",
+            isCompleted: adjustedValue?.isCompleted ?? true,
           };
         }),
       ),
     });
-
-    setIsAdjustedEntryVisible(false);
   };
 
   return (
@@ -271,166 +317,112 @@ const WorkoutDetailScreen = () => {
                     : `RPE ${plannedSet.targetRpe}`
                 }
               />
-              {loggedSetResultByPlannedSetId.has(plannedSet.id) ? (
+              {isCompleted ? (
                 <Text style={styles.loggedResultText}>
                   Recorded: {loggedSetResultByPlannedSetId.get(plannedSet.id)?.actualReps ?? "-"} reps
                   at {loggedSetResultByPlannedSetId.get(plannedSet.id)?.actualLoad ?? "-"} kg
                 </Text>
-              ) : null}
+              ) : (
+                <View style={styles.inlineEditorCard}>
+                  <View style={styles.inlineEditorHeader}>
+                    <Text style={styles.inlineEditorTitle}>Record this set inline</Text>
+                    <Pressable
+                      accessibilityRole="checkbox"
+                      accessibilityState={{
+                        checked: editableSetValues[plannedSet.id]?.isCompleted ?? true,
+                      }}
+                      onPress={() => {
+                        updateEditableSetValue(
+                          plannedSet.id,
+                          "isCompleted",
+                          !(editableSetValues[plannedSet.id]?.isCompleted ?? true),
+                        );
+                      }}
+                      style={({ pressed }) => [
+                        styles.checkbox,
+                        (editableSetValues[plannedSet.id]?.isCompleted ?? true)
+                          ? styles.checkboxChecked
+                          : null,
+                        pressed ? styles.checkboxPressed : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.checkboxLabel,
+                          (editableSetValues[plannedSet.id]?.isCompleted ?? true)
+                            ? styles.checkboxLabelChecked
+                            : null,
+                        ]}
+                      >
+                        {(editableSetValues[plannedSet.id]?.isCompleted ?? true) ? "Done" : "Skip"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.inlineEditorFields}>
+                    <View style={styles.inlineEditorField}>
+                      <NumberField
+                        helperText={`Planned reps: ${plannedSet.targetReps}`}
+                        label="Actual reps"
+                        onChangeText={(value) => {
+                          updateEditableSetValue(plannedSet.id, "reps", value);
+                        }}
+                        value={editableSetValues[plannedSet.id]?.reps ?? String(plannedSet.targetReps)}
+                      />
+                    </View>
+                    <View style={styles.inlineEditorField}>
+                      <NumberField
+                        helperText={`Planned load: ${plannedSet.targetLoad} kg`}
+                        label={isEvaluationSession ? "Recorded load" : "Actual load"}
+                        onChangeText={(value) => {
+                          updateEditableSetValue(plannedSet.id, "load", value);
+                        }}
+                        value={editableSetValues[plannedSet.id]?.load ?? String(plannedSet.targetLoad)}
+                      />
+                    </View>
+                  </View>
+                </View>
+              )}
             </View>
           ))}
         </Card>
       ))}
 
-      <Card>
-        {quickCompleteSessionMutation.isError ? (
-          <Text style={styles.errorText}>
-            {quickCompleteSessionMutation.error instanceof Error
-              ? quickCompleteSessionMutation.error.message
-              : "Quick completion failed. Try again from this session screen."}
-          </Text>
-        ) : null}
-        {saveAdjustedSessionResultsMutation.isError ? (
-          <Text style={styles.errorText}>
-            {saveAdjustedSessionResultsMutation.error instanceof Error
-              ? saveAdjustedSessionResultsMutation.error.message
-              : "Adjusted result saving failed. Review the entered values and try again."}
-          </Text>
-        ) : null}
-        <Button
-          disabled={isCompleted}
-          label={
-            isCompleted
-              ? "Session already completed"
-              : quickCompleteSessionMutation.isPending
-                ? isBenchmarkSession
-                  ? "Saving benchmark result..."
-                  : isFinalTestSession
-                    ? "Saving final test result..."
-                  : "Saving completion..."
-                : isBenchmarkSession
-                  ? "Save benchmark as completed"
-                  : isFinalTestSession
-                    ? "Save final test as completed"
-                  : "Quick complete session"
-          }
-          onPress={() => {
-            if (isCompleted) {
-              return;
-            }
-
-            void quickCompleteSessionMutation.mutateAsync();
-          }}
-          variant={isCompleted ? "secondary" : "primary"}
-        />
-        <Button
-          disabled={isCompleted}
-          label={
-            isAdjustedEntryVisible
-              ? isBenchmarkSession
-                ? "Hide benchmark result entry"
-                : isFinalTestSession
-                  ? "Hide final test result entry"
-                : "Hide adjusted result entry"
-              : isBenchmarkSession
-                ? "Record benchmark result"
-                : isFinalTestSession
-                  ? "Record final test result"
-                : "Enter adjusted results"
-          }
-          onPress={() => {
-            if (isCompleted) {
-              return;
-            }
-
-            setIsAdjustedEntryVisible((current) => !current);
-          }}
-          variant="secondary"
-        />
-      </Card>
-
-      {isAdjustedEntryVisible ? (
+      {isCompleted ? null : (
         <Card>
-          <View style={styles.adjustedHeader}>
-            <Text style={styles.adjustedTitle}>
-              {isBenchmarkSession
-                ? "Benchmark result entry"
-                : isFinalTestSession
-                  ? "Final test result entry"
-                  : "Adjusted result entry"}
+          <Text style={styles.adjustedTitle}>
+            {isEvaluationSession ? "Evaluation logging" : "Workout logging"}
+          </Text>
+          <Text style={styles.adjustedDescription}>
+            {completedSetCount} of {allEditableValues.length} sets are marked done. Saving this workout
+            will record it as {completionStatus}.
+          </Text>
+          {saveWorkoutSessionMutation.isError ? (
+            <Text style={styles.errorText}>
+              {saveWorkoutSessionMutation.error instanceof Error
+                ? saveWorkoutSessionMutation.error.message
+                : "Workout saving failed. Review the entered values and try again."}
             </Text>
-            <Text style={styles.adjustedDescription}>
-              {isEvaluationSession
-                ? "Record the actual testing output so it can be reviewed separately from the saved benchmark setup values."
-                : "Save actual reps and load for sets that were modified, partially completed, or missed."}
-            </Text>
-          </View>
-          <View style={styles.statusRow}>
-            {(["completed", "partial", "missed"] as const).map((statusOption) => (
-              <Button
-                key={statusOption}
-                label={statusOption}
-                onPress={() => {
-                  setCompletionStatus(statusOption);
-                }}
-                variant={completionStatus === statusOption ? "primary" : "secondary"}
-              />
-            ))}
-          </View>
-          {plannedSession.plannedExercises.map((exercise) => (
-            <Card key={`${exercise.id}-adjusted`}>
-              <Text style={styles.exerciseName}>{exercise.exerciseName}</Text>
-              {exercise.plannedSets.map((plannedSet) => (
-                <View key={`${plannedSet.id}-fields`} style={styles.adjustedSetBlock}>
-                  <Text style={styles.adjustedSetTitle}>Set {plannedSet.setIndex}</Text>
-                  <NumberField
-                    helperText={
-                      isBenchmarkSession || isFinalTestSession
-                        ? `Planned test reps: ${plannedSet.targetReps}`
-                        : `Default planned reps: ${plannedSet.targetReps}`
-                    }
-                    label={isEvaluationSession ? "Recorded reps" : "Actual reps"}
-                    onChangeText={(value) => {
-                      updateAdjustedValue(plannedSet.id, "reps", value);
-                    }}
-                    value={adjustedValues[plannedSet.id]?.reps ?? ""}
-                  />
-                  <NumberField
-                    helperText={
-                      isBenchmarkSession || isFinalTestSession
-                        ? `Planned test load: ${plannedSet.targetLoad} kg`
-                        : `Default planned load: ${plannedSet.targetLoad} kg`
-                    }
-                    label={isEvaluationSession ? "Recorded load" : "Actual load"}
-                    onChangeText={(value) => {
-                      updateAdjustedValue(plannedSet.id, "load", value);
-                    }}
-                    value={adjustedValues[plannedSet.id]?.load ?? ""}
-                  />
-                </View>
-              ))}
-            </Card>
-          ))}
+          ) : null}
           <Button
             label={
-              saveAdjustedSessionResultsMutation.isPending
+              saveWorkoutSessionMutation.isPending
                 ? isBenchmarkSession
                   ? "Saving benchmark result..."
                   : isFinalTestSession
                     ? "Saving final test result..."
-                  : "Saving adjusted results..."
+                    : "Saving workout..."
                 : isBenchmarkSession
                   ? "Save benchmark result"
                   : isFinalTestSession
                     ? "Save final test result"
-                  : "Save adjusted results"
+                    : "Save workout"
             }
             onPress={() => {
-              void handleSaveAdjustedResults();
+              void handleSaveWorkout();
             }}
           />
         </Card>
-      ) : null}
+      )}
       <Card>
         <Button
           label={workoutReview.block.status === "archived" ? "Back to History" : "Back to Today"}
@@ -522,9 +514,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: appTheme.colors.danger,
   },
-  adjustedHeader: {
-    gap: appTheme.spacing.xs,
-  },
   adjustedTitle: {
     fontSize: 18,
     fontWeight: "800",
@@ -535,16 +524,59 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: appTheme.colors.textSecondary,
   },
-  statusRow: {
+  inlineEditorCard: {
     gap: appTheme.spacing.sm,
+    borderWidth: 1,
+    borderColor: appTheme.colors.border,
+    borderRadius: appTheme.radius.md,
+    padding: appTheme.spacing.md,
+    backgroundColor: appTheme.colors.surface,
   },
-  adjustedSetBlock: {
-    gap: appTheme.spacing.sm,
+  inlineEditorHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: appTheme.spacing.md,
   },
-  adjustedSetTitle: {
+  inlineEditorTitle: {
     fontSize: 15,
     fontWeight: "700",
     color: appTheme.colors.textPrimary,
+  },
+  inlineEditorFields: {
+    flexDirection: "row",
+    gap: appTheme.spacing.sm,
+  },
+  inlineEditorField: {
+    flex: 1,
+  },
+  checkbox: {
+    minWidth: 72,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: appTheme.colors.border,
+    borderRadius: appTheme.radius.md,
+    paddingHorizontal: appTheme.spacing.md,
+    paddingVertical: appTheme.spacing.sm,
+    backgroundColor: appTheme.colors.surfaceMuted,
+  },
+  checkboxChecked: {
+    backgroundColor: appTheme.colors.accent,
+    borderColor: appTheme.colors.accent,
+  },
+  checkboxPressed: {
+    opacity: 0.9,
+  },
+  checkboxLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: appTheme.colors.textPrimary,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  checkboxLabelChecked: {
+    color: appTheme.colors.buttonText,
   },
   testSessionTitle: {
     fontSize: 17,
