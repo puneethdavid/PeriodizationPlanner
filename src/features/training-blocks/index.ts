@@ -4,6 +4,7 @@ export * from "@/features/training-blocks/repository/TrainingBlockRepository";
 export * from "@/features/training-blocks/schema/trainingBlockSchemas";
 export * from "@/features/training-blocks/services/adaptationEngineContracts";
 export * from "@/features/training-blocks/services/adaptationHeuristics";
+export * from "@/features/training-blocks/services/adaptationRules";
 export * from "@/features/training-blocks/services/adaptationEngineService";
 export * from "@/features/training-blocks/services/devTrainingSeedService";
 export * from "@/features/training-blocks/services/fixedBlockGenerator";
