@@ -1,3 +1,4 @@
+import { getBenchmarkSourceSlug } from "@/features/training-blocks/domain/exerciseCatalog";
 import type {
   BenchmarkInput,
   LpCheckpointType,
@@ -11,7 +12,8 @@ type LiftLevelThresholdBand = {
   advancedAtOrAbove: number;
 };
 
-type LiftLevelThresholdTable = Record<BenchmarkInput["liftSlug"], LiftLevelThresholdBand>;
+type ThresholdLiftSlug = "back-squat" | "bench-press" | "deadlift" | "overhead-press";
+type LiftLevelThresholdTable = Record<ThresholdLiftSlug, LiftLevelThresholdBand>;
 
 const kilogramThresholds: LiftLevelThresholdTable = {
   "back-squat": {
@@ -57,7 +59,8 @@ const normalizeBenchmarkValueToKilograms = (benchmark: Pick<BenchmarkInput, "uni
 };
 
 const classifyLiftLevel = (benchmark: Pick<BenchmarkInput, "liftSlug" | "unit" | "value">): LpProgramLevel => {
-  const thresholds = kilogramThresholds[benchmark.liftSlug];
+  const thresholdSlug = getBenchmarkSourceSlug(benchmark.liftSlug) as ThresholdLiftSlug;
+  const thresholds = kilogramThresholds[thresholdSlug];
   const normalizedValue = normalizeBenchmarkValueToKilograms(benchmark);
 
   if (normalizedValue >= thresholds.advancedAtOrAbove) {

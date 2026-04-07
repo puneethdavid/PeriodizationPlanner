@@ -1,5 +1,10 @@
 import { parseWithSchema } from "@/schema/parseWithSchema";
 
+import {
+  benchmarkEligibleExerciseSlugs,
+  primaryEligibleExerciseSlugs,
+  secondaryEligibleExerciseSlugs,
+} from "@/features/training-blocks/domain/exerciseCatalog";
 import type {
   BlockConfiguration,
   BlockDurationWeeks,
@@ -46,8 +51,8 @@ export const createDefaultBlockConfiguration = (): BlockConfiguration => ({
   benchmarkLiftSlugs: ["back-squat", "bench-press", "deadlift"],
   primaryLiftsPerSession: 1,
   secondaryLiftsPerSession: 1,
-  primaryLiftPool: ["back-squat", "bench-press", "deadlift", "overhead-press"],
-  secondaryLiftPool: ["back-squat", "bench-press", "deadlift", "overhead-press"],
+  primaryLiftPool: [...primaryEligibleExerciseSlugs],
+  secondaryLiftPool: [...secondaryEligibleExerciseSlugs],
   targetLiftGoals: [],
 });
 

@@ -3,20 +3,23 @@ import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, LoadingState, NumberField } from "@/components/ui";
+import { benchmarkEligibleExerciseSlugs, getExerciseLabel } from "@/features/training-blocks/domain/exerciseCatalog";
 import { useBenchmarksQuery } from "@/features/training-blocks/queries/useBenchmarksQuery";
+import { useBlockConfigurationQuery } from "@/features/training-blocks/queries/useBlockConfigurationQuery";
 import { useSaveBenchmarksMutation } from "@/features/training-blocks/queries/useSaveBenchmarksMutation";
 import {
-  benchmarkFieldMetadata,
   createBenchmarkDraftsFromSaved,
   createEmptyBenchmarkDrafts,
   type BenchmarkDraftErrors,
   type BenchmarkDraftValues,
+  benchmarkFieldMetadata,
   validateBenchmarkDrafts,
 } from "@/features/training-blocks/services/benchmarkDraftService";
 import { appTheme } from "@/theme/appTheme";
 
 export const BenchmarkEntryCard = () => {
   const benchmarksQuery = useBenchmarksQuery();
+  const blockConfigurationQuery = useBlockConfigurationQuery();
   const saveBenchmarksMutation = useSaveBenchmarksMutation();
   const [drafts, setDrafts] = useState<BenchmarkDraftValues>(createEmptyBenchmarkDrafts);
   const [errors, setErrors] = useState<BenchmarkDraftErrors>({});
@@ -24,13 +27,16 @@ export const BenchmarkEntryCard = () => {
   const [hasHydratedSavedValues, setHasHydratedSavedValues] = useState(false);
 
   useEffect(() => {
+    const selectedBenchmarkLifts =
+      blockConfigurationQuery.data?.benchmarkLiftSlugs ?? benchmarkEligibleExerciseSlugs;
+
     if (benchmarksQuery.data === undefined || hasHydratedSavedValues) {
       return;
     }
 
-    setDrafts(createBenchmarkDraftsFromSaved(benchmarksQuery.data));
+    setDrafts(createBenchmarkDraftsFromSaved(benchmarksQuery.data, selectedBenchmarkLifts));
     setHasHydratedSavedValues(true);
-  }, [benchmarksQuery.data, hasHydratedSavedValues]);
+  }, [benchmarksQuery.data, blockConfigurationQuery.data, hasHydratedSavedValues]);
 
   const updateDraft = (liftSlug: keyof BenchmarkDraftValues, value: string) => {
     setDrafts((current) => ({
@@ -52,7 +58,9 @@ export const BenchmarkEntryCard = () => {
   };
 
   const handleSave = async () => {
-    const validationResult = validateBenchmarkDrafts(drafts);
+    const selectedBenchmarkLifts =
+      blockConfigurationQuery.data?.benchmarkLiftSlugs ?? benchmarkEligibleExerciseSlugs;
+    const validationResult = validateBenchmarkDrafts(drafts, selectedBenchmarkLifts);
 
     if (Object.keys(validationResult.errors).length > 0) {
       setErrors(validationResult.errors);
@@ -85,24 +93,33 @@ export const BenchmarkEntryCard = () => {
     );
   }
 
+  const selectedBenchmarkLifts =
+    blockConfigurationQuery.data?.benchmarkLiftSlugs ?? benchmarkEligibleExerciseSlugs;
+
   return (
     <Card>
       <View style={styles.header}>
         <Text style={styles.title}>Benchmark setup</Text>
         <Text style={styles.description}>
-          Save the starting benchmark inputs for the core lifts before generating a block. These
-          saved values seed block generation and stay separate from later benchmark or final-test
-          workout results.
+          Save the starting benchmark inputs for the selected benchmark-capable primary lifts before
+          generating a block. These setup values stay separate from later benchmark or final-test
+          workout results logged inside the program.
         </Text>
       </View>
-      {Object.entries(benchmarkFieldMetadata).map(([liftSlug, metadata]) => (
+      {selectedBenchmarkLifts.length === 0 ? (
+        <Text style={styles.feedback}>
+          Select benchmark-capable primary lifts in Block setup first, then their benchmark inputs
+          will appear here.
+        </Text>
+      ) : null}
+      {selectedBenchmarkLifts.map((liftSlug) => (
         <NumberField
           key={liftSlug}
-          helperText={errors[liftSlug as keyof BenchmarkDraftValues] ?? metadata.helperText}
-          label={metadata.label}
-          onChangeText={(value) => updateDraft(liftSlug as keyof BenchmarkDraftValues, value)}
+          helperText={errors[liftSlug] ?? benchmarkFieldMetadata[liftSlug].helperText}
+          label={getExerciseLabel(liftSlug)}
+          onChangeText={(value) => updateDraft(liftSlug, value)}
           placeholder="0"
-          value={drafts[liftSlug as keyof BenchmarkDraftValues]}
+          value={drafts[liftSlug] ?? ""}
         />
       ))}
       {feedbackMessage !== null ? (
@@ -111,7 +128,7 @@ export const BenchmarkEntryCard = () => {
         </Text>
       ) : null}
       <Button
-        disabled={saveBenchmarksMutation.isPending}
+        disabled={saveBenchmarksMutation.isPending || selectedBenchmarkLifts.length === 0}
         label={saveBenchmarksMutation.isPending ? "Saving benchmarks..." : "Save benchmarks"}
         onPress={() => {
           void handleSave();

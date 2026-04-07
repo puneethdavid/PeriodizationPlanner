@@ -5,6 +5,12 @@ import {
   optionalNullableStringSchema,
   trimmedStringSchema,
 } from "@/schema/primitives";
+import {
+  benchmarkEligibleExerciseSlugs,
+  primaryEligibleExerciseSlugs,
+  secondaryEligibleExerciseSlugs,
+  trackedLiftSlugs,
+} from "@/features/training-blocks/domain/exerciseCatalog";
 
 const isoDateSchema = z.iso.date();
 const isoDateTimeSchema = z.iso.datetime();
@@ -13,12 +19,10 @@ const nonNegativeNumberSchema = z.number().nonnegative();
 const weekdayCountSchema = z.number().int().min(1).max(7);
 const secondaryLiftCountSchema = z.number().int().min(0).max(4);
 
-export const liftSlugSchema = z.enum([
-  "back-squat",
-  "bench-press",
-  "deadlift",
-  "overhead-press",
-]);
+export const liftSlugSchema = z.enum(trackedLiftSlugs);
+export const benchmarkEligibleLiftSlugSchema = z.enum(benchmarkEligibleExerciseSlugs as [typeof benchmarkEligibleExerciseSlugs[number], ...typeof benchmarkEligibleExerciseSlugs[number][]]);
+export const primaryEligibleLiftSlugSchema = z.enum(primaryEligibleExerciseSlugs as [typeof primaryEligibleExerciseSlugs[number], ...typeof primaryEligibleExerciseSlugs[number][]]);
+export const secondaryEligibleLiftSlugSchema = z.enum(secondaryEligibleExerciseSlugs as [typeof secondaryEligibleExerciseSlugs[number], ...typeof secondaryEligibleExerciseSlugs[number][]]);
 
 export const benchmarkTypeSchema = z.enum([
   "one-rep-max",
@@ -118,13 +122,21 @@ export const validatedBlockSchedulingPreferencesSchema = blockSchedulingPreferen
 export const uniqueLiftSlugListSchema = z
   .array(liftSlugSchema)
   .min(1)
-  .max(4)
+  .max(12)
   .refine((liftSlugs) => new Set(liftSlugs).size === liftSlugs.length, {
     message: "Lift selections must not contain duplicates.",
   });
 
+export const uniqueBenchmarkLiftSlugListSchema = z
+  .array(benchmarkEligibleLiftSlugSchema)
+  .min(1)
+  .max(8)
+  .refine((liftSlugs) => new Set(liftSlugs).size === liftSlugs.length, {
+    message: "Benchmark selections must not contain duplicates.",
+  });
+
 export const targetLiftGoalSchema = z.object({
-  liftSlug: liftSlugSchema,
+  liftSlug: benchmarkEligibleLiftSlugSchema,
   targetWeight: z.number().positive(),
   targetTestType: lpCheckpointTypeSchema,
 });
@@ -141,11 +153,11 @@ export const blockConfigurationSchema = z.object({
   durationWeeks: blockDurationWeeksSchema,
   primaryGoal: liftGoalSchema,
   secondaryGoal: liftGoalSchema,
-  benchmarkLiftSlugs: uniqueLiftSlugListSchema,
+  benchmarkLiftSlugs: uniqueBenchmarkLiftSlugListSchema,
   primaryLiftsPerSession: positiveIntegerSchema.max(4),
   secondaryLiftsPerSession: secondaryLiftCountSchema,
-  primaryLiftPool: uniqueLiftSlugListSchema,
-  secondaryLiftPool: uniqueLiftSlugListSchema,
+  primaryLiftPool: z.array(primaryEligibleLiftSlugSchema).min(1).max(12),
+  secondaryLiftPool: z.array(secondaryEligibleLiftSlugSchema).min(1).max(12),
   targetLiftGoals: targetLiftGoalsSchema.default([]),
 });
 
@@ -189,9 +201,27 @@ export const validatedBlockConfigurationSchema = blockConfigurationSchema.superR
       });
     }
 
+    const primaryLiftSet = new Set(value.primaryLiftPool);
     const benchmarkLiftSet = new Set(value.benchmarkLiftSlugs);
 
+    value.benchmarkLiftSlugs.forEach((liftSlug, index) => {
+      if (!primaryLiftSet.has(liftSlug)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["benchmarkLiftSlugs", index],
+          message: "Benchmark lifts must come from the selected primary lift pool.",
+        });
+      }
+    });
+
     value.targetLiftGoals.forEach((goal, index) => {
+      if (!primaryLiftSet.has(goal.liftSlug)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["targetLiftGoals", index, "liftSlug"],
+          message: "Target goals must come from the selected primary lift pool.",
+        });
+      }
       if (!benchmarkLiftSet.has(goal.liftSlug)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,

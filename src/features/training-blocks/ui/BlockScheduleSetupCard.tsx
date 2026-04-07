@@ -2,7 +2,14 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, LoadingState, NumberField } from "@/components/ui";
-import { benchmarkFieldMetadata } from "@/features/training-blocks/services/benchmarkDraftService";
+import {
+  benchmarkEligibleExerciseSlugs,
+  exerciseCatalog,
+  exerciseCatalogEntries,
+  primaryEligibleExerciseSlugs,
+  secondaryEligibleExerciseSlugs,
+  type ExerciseSlug,
+} from "@/features/training-blocks/domain/exerciseCatalog";
 import { useBenchmarksQuery } from "@/features/training-blocks/queries/useBenchmarksQuery";
 import { useBlockConfigurationQuery } from "@/features/training-blocks/queries/useBlockConfigurationQuery";
 import { useSaveBlockConfigurationMutation } from "@/features/training-blocks/queries/useSaveBlockConfigurationMutation";
@@ -27,7 +34,19 @@ import { trainingWeekdayLabels, trainingWeekdayOrder } from "@/features/training
 import { appTheme } from "@/theme/appTheme";
 
 const frequencyOptions = [2, 3, 4, 5] as const;
-const liftOptions = Object.keys(benchmarkFieldMetadata) as BenchmarkInput["liftSlug"][];
+const primaryLiftOptions = primaryEligibleExerciseSlugs;
+const secondaryLiftOptions = secondaryEligibleExerciseSlugs;
+const groupedExerciseCatalog = exerciseCatalogEntries.reduce<Record<string, ExerciseSlug[]>>(
+  (current, exercise) => {
+    const nextGroup = current[exercise.category] ?? [];
+
+    return {
+      ...current,
+      [exercise.category]: [...nextGroup, exercise.slug],
+    };
+  },
+  {},
+);
 
 export const BlockScheduleSetupCard = () => {
   const benchmarksQuery = useBenchmarksQuery();
@@ -76,6 +95,65 @@ export const BlockScheduleSetupCard = () => {
     setErrorMessage(null);
     setFeedbackMessage(null);
   };
+
+  const renderLiftSelectionGroup = (input: {
+    title: string;
+    description?: string;
+    allowedLiftSlugs: readonly ExerciseSlug[];
+    selectedLiftSlugs: readonly BenchmarkInput["liftSlug"][];
+    onToggle: (liftSlug: BenchmarkInput["liftSlug"]) => void;
+  }) => (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>{input.title}</Text>
+      {input.description === undefined ? null : (
+        <Text style={styles.sectionDescription}>{input.description}</Text>
+      )}
+      {Object.entries(groupedExerciseCatalog).map(([category, categoryLiftSlugs]) => {
+        const visibleLiftSlugs = categoryLiftSlugs.filter((liftSlug) =>
+          input.allowedLiftSlugs.includes(liftSlug),
+        );
+
+        if (visibleLiftSlugs.length === 0) {
+          return null;
+        }
+
+        return (
+          <View key={`${input.title}-${category}`} style={styles.catalogGroup}>
+            <Text style={styles.catalogGroupTitle}>{category.replace("-", " ")}</Text>
+            <View style={styles.optionRow}>
+              {visibleLiftSlugs.map((liftSlug) => {
+                const isSelected = input.selectedLiftSlugs.includes(liftSlug);
+
+                return (
+                  <Pressable
+                    key={`${input.title}-${liftSlug}`}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      input.onToggle(liftSlug);
+                    }}
+                    style={({ pressed }) => [
+                      styles.liftChip,
+                      isSelected ? styles.choiceChipActive : null,
+                      pressed ? styles.choiceChipPressed : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.choiceChipLabel,
+                        isSelected ? styles.choiceChipLabelActive : null,
+                      ]}
+                    >
+                      {exerciseCatalog[liftSlug].label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
 
   const handleSave = async () => {
     const validationResult = validateBlockConfigurationDraft(draft, benchmarksQuery.data ?? []);
@@ -298,38 +376,17 @@ export const BlockScheduleSetupCard = () => {
         </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Benchmark lifts</Text>
-        <View style={styles.optionRow}>
-          {liftOptions.map((liftSlug) => {
-            const isSelected = draft.benchmarkLiftSlugs.includes(liftSlug);
-
-            return (
-              <Pressable
-                key={`benchmark-${liftSlug}`}
-                accessibilityRole="button"
-                onPress={() => {
-                  handleToggleLift("benchmarkLiftSlugs", liftSlug);
-                }}
-                style={({ pressed }) => [
-                  styles.liftChip,
-                  isSelected ? styles.choiceChipActive : null,
-                  pressed ? styles.choiceChipPressed : null,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.choiceChipLabel,
-                    isSelected ? styles.choiceChipLabelActive : null,
-                  ]}
-                >
-                  {benchmarkFieldMetadata[liftSlug].label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+      {renderLiftSelectionGroup({
+        title: "Benchmark lifts",
+        description: "Benchmark selections must come from the primary lift pool and only benchmark-capable exercises appear here.",
+        allowedLiftSlugs: benchmarkEligibleExerciseSlugs.filter((liftSlug) =>
+          draft.primaryLiftPool.includes(liftSlug),
+        ),
+        selectedLiftSlugs: draft.benchmarkLiftSlugs,
+        onToggle: (liftSlug) => {
+          handleToggleLift("benchmarkLiftSlugs", liftSlug);
+        },
+      })}
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Primary lifts per session</Text>
@@ -399,80 +456,36 @@ export const BlockScheduleSetupCard = () => {
         </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Primary lift pool</Text>
-        <View style={styles.optionRow}>
-          {liftOptions.map((liftSlug) => {
-            const isSelected = draft.primaryLiftPool.includes(liftSlug);
+      {renderLiftSelectionGroup({
+        title: "Primary lift pool",
+        description: `${draft.primaryLiftPool.length} selected. These lifts drive benchmark and target-goal eligibility.`,
+        allowedLiftSlugs: primaryLiftOptions,
+        selectedLiftSlugs: draft.primaryLiftPool,
+        onToggle: (liftSlug) => {
+          handleToggleLift("primaryLiftPool", liftSlug);
+        },
+      })}
 
-            return (
-              <Pressable
-                key={`primary-pool-${liftSlug}`}
-                accessibilityRole="button"
-                onPress={() => {
-                  handleToggleLift("primaryLiftPool", liftSlug);
-                }}
-                style={({ pressed }) => [
-                  styles.liftChip,
-                  isSelected ? styles.choiceChipActive : null,
-                  pressed ? styles.choiceChipPressed : null,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.choiceChipLabel,
-                    isSelected ? styles.choiceChipLabelActive : null,
-                  ]}
-                >
-                  {benchmarkFieldMetadata[liftSlug].label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Secondary lift pool</Text>
-        <View style={styles.optionRow}>
-          {liftOptions.map((liftSlug) => {
-            const isSelected = draft.secondaryLiftPool.includes(liftSlug);
-
-            return (
-              <Pressable
-                key={`secondary-pool-${liftSlug}`}
-                accessibilityRole="button"
-                onPress={() => {
-                  handleToggleLift("secondaryLiftPool", liftSlug);
-                }}
-                style={({ pressed }) => [
-                  styles.liftChip,
-                  isSelected ? styles.choiceChipActive : null,
-                  pressed ? styles.choiceChipPressed : null,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.choiceChipLabel,
-                    isSelected ? styles.choiceChipLabelActive : null,
-                  ]}
-                >
-                  {benchmarkFieldMetadata[liftSlug].label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+      {renderLiftSelectionGroup({
+        title: "Secondary lift pool",
+        description: `${draft.secondaryLiftPool.length} selected. Secondary lifts can draw load from their mapped benchmark source where needed.`,
+        allowedLiftSlugs: secondaryLiftOptions,
+        selectedLiftSlugs: draft.secondaryLiftPool,
+        onToggle: (liftSlug) => {
+          handleToggleLift("secondaryLiftPool", liftSlug);
+        },
+      })}
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Target lift goals</Text>
         <Text style={styles.sectionDescription}>
-          Select the priority lifts you want the LP program to drive toward and enter the target
-          rep-max outcome for each one.
+          Select the priority lifts you want the LP program to drive toward. Goal lifts must come
+          from the selected primary pool and still require a saved benchmark.
         </Text>
         <View style={styles.optionRow}>
-          {draft.benchmarkLiftSlugs.map((liftSlug) => {
+          {draft.primaryLiftPool
+            .filter((liftSlug) => benchmarkEligibleExerciseSlugs.includes(liftSlug))
+            .map((liftSlug) => {
             const isSelected = draft.targetLiftGoals.some((goal) => goal.liftSlug === liftSlug);
 
             return (
@@ -494,16 +507,16 @@ export const BlockScheduleSetupCard = () => {
                   isSelected ? styles.choiceChipActive : null,
                   pressed ? styles.choiceChipPressed : null,
                 ]}
-              >
-                <Text
-                  style={[
-                    styles.choiceChipLabel,
-                    isSelected ? styles.choiceChipLabelActive : null,
-                  ]}
                 >
-                  {benchmarkFieldMetadata[liftSlug].label}
-                </Text>
-              </Pressable>
+                  <Text
+                    style={[
+                      styles.choiceChipLabel,
+                      isSelected ? styles.choiceChipLabelActive : null,
+                    ]}
+                  >
+                  {exerciseCatalog[liftSlug].label}
+                  </Text>
+                </Pressable>
             );
           })}
         </View>
@@ -514,7 +527,7 @@ export const BlockScheduleSetupCard = () => {
           return (
             <Card key={`goal-config-${goal.liftSlug}`}>
               <View style={styles.goalHeader}>
-                <Text style={styles.sectionLabel}>{benchmarkFieldMetadata[goal.liftSlug].label}</Text>
+                <Text style={styles.sectionLabel}>{exerciseCatalog[goal.liftSlug].label}</Text>
                 <Text style={styles.helperText}>
                   {savedBenchmark === null
                     ? "Save a benchmark first so the target can be validated."
@@ -703,6 +716,16 @@ const styles = StyleSheet.create({
   },
   goalHeader: {
     gap: appTheme.spacing.xs,
+  },
+  catalogGroup: {
+    gap: appTheme.spacing.xs,
+  },
+  catalogGroupTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: appTheme.colors.textMuted,
   },
   errorText: {
     color: appTheme.colors.danger,

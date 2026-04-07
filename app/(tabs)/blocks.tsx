@@ -12,16 +12,17 @@ const BlocksScreen = () => {
     <ScreenContainer
       eyebrow="Planning"
       title="Blocks"
-      description="Capture saved benchmark inputs first, then review the setup and generate the local training block from those values."
+      description="Set up the block first, then capture benchmarks for the selected primary lifts and generate the local plan."
     >
-      <BenchmarkEntryCard />
       <BlockScheduleSetupCard />
+      <BenchmarkEntryCard />
       <BlockGenerationCard />
       <BlockProgressCard />
       <Card>
         <Text style={{ color: appTheme.colors.textSecondary, lineHeight: 22 }}>
-          Saved benchmark inputs seed generation. Benchmark and final-test sessions inside the plan
-          are later scheduled workouts, not the same thing as the setup values saved here.
+          Primary lift choices now drive which benchmarks and target goals are available. The
+          benchmark values saved here seed generation, while benchmark and final-test sessions in
+          the plan are later scheduled workouts.
         </Text>
       </Card>
     </ScreenContainer>

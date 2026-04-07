@@ -1,57 +1,46 @@
+import {
+  benchmarkEligibleExerciseSlugs,
+  exerciseCatalog,
+} from "@/features/training-blocks/domain/exerciseCatalog";
 import type { Benchmark, BenchmarkInput } from "@/features/training-blocks/schema/trainingBlockSchemas";
 
-const benchmarkLiftOrder = [
-  "back-squat",
-  "bench-press",
-  "deadlift",
-  "overhead-press",
-] as const satisfies readonly BenchmarkInput["liftSlug"][];
+type BenchmarkLiftSlug = (typeof benchmarkEligibleExerciseSlugs)[number];
 
-type BenchmarkLiftSlug = (typeof benchmarkLiftOrder)[number];
-
-export type BenchmarkDraftValues = Record<BenchmarkLiftSlug, string>;
+export type BenchmarkDraftValues = Partial<Record<BenchmarkLiftSlug, string>>;
 export type BenchmarkDraftErrors = Partial<Record<BenchmarkLiftSlug, string>>;
 
 export const benchmarkFieldMetadata: Record<
   BenchmarkLiftSlug,
   { label: string; helperText: string; benchmarkType: BenchmarkInput["benchmarkType"] }
-> = {
-  "back-squat": {
-    label: "Back squat",
-    helperText: "Enter your current best recent five-rep benchmark.",
-    benchmarkType: "five-rep-max",
-  },
-  "bench-press": {
-    label: "Bench press",
-    helperText: "Enter your current best recent five-rep benchmark.",
-    benchmarkType: "five-rep-max",
-  },
-  deadlift: {
-    label: "Deadlift",
-    helperText: "Enter your current best recent three-rep benchmark.",
-    benchmarkType: "three-rep-max",
-  },
-  "overhead-press": {
-    label: "Overhead press",
-    helperText: "Enter your current best recent five-rep benchmark.",
-    benchmarkType: "five-rep-max",
-  },
-};
+> = Object.fromEntries(
+  benchmarkEligibleExerciseSlugs.map((liftSlug) => [
+    liftSlug,
+    {
+      label: exerciseCatalog[liftSlug].label,
+      helperText: `Enter your current best recent ${exerciseCatalog[liftSlug].benchmarkType.replaceAll("-", " ")} benchmark.`,
+      benchmarkType: exerciseCatalog[liftSlug].benchmarkType,
+    },
+  ]),
+) as Record<
+  BenchmarkLiftSlug,
+  { label: string; helperText: string; benchmarkType: BenchmarkInput["benchmarkType"] }
+>;
 
-export const createEmptyBenchmarkDrafts = (): BenchmarkDraftValues => ({
-  "back-squat": "",
-  "bench-press": "",
-  deadlift: "",
-  "overhead-press": "",
-});
+export const createEmptyBenchmarkDrafts = (
+  selectedLiftSlugs: readonly BenchmarkLiftSlug[] = benchmarkEligibleExerciseSlugs,
+): BenchmarkDraftValues =>
+  Object.fromEntries(selectedLiftSlugs.map((liftSlug) => [liftSlug, ""])) as BenchmarkDraftValues;
 
 export const createBenchmarkDraftsFromSaved = (
   benchmarks: readonly Benchmark[],
+  selectedLiftSlugs: readonly BenchmarkLiftSlug[] = benchmarkEligibleExerciseSlugs,
 ): BenchmarkDraftValues => {
-  const drafts = createEmptyBenchmarkDrafts();
+  const drafts = createEmptyBenchmarkDrafts(selectedLiftSlugs);
 
   benchmarks.forEach((benchmark) => {
-    drafts[benchmark.liftSlug] = String(benchmark.value);
+    if (selectedLiftSlugs.includes(benchmark.liftSlug as BenchmarkLiftSlug)) {
+      drafts[benchmark.liftSlug as BenchmarkLiftSlug] = String(benchmark.value);
+    }
   });
 
   return drafts;
@@ -59,13 +48,14 @@ export const createBenchmarkDraftsFromSaved = (
 
 export const validateBenchmarkDrafts = (
   drafts: BenchmarkDraftValues,
+  selectedLiftSlugs: readonly BenchmarkLiftSlug[] = benchmarkEligibleExerciseSlugs,
 ): { inputs: readonly BenchmarkInput[]; errors: BenchmarkDraftErrors } => {
   const capturedAt = new Date().toISOString();
   const errors: BenchmarkDraftErrors = {};
   const inputs: BenchmarkInput[] = [];
 
-  benchmarkLiftOrder.forEach((liftSlug) => {
-    const rawValue = drafts[liftSlug].trim();
+  selectedLiftSlugs.forEach((liftSlug) => {
+    const rawValue = drafts[liftSlug]?.trim() ?? "";
 
     if (rawValue.length === 0) {
       errors[liftSlug] = "Enter a benchmark value.";

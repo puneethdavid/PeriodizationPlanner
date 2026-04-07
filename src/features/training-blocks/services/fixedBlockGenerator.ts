@@ -2,6 +2,11 @@ import { parseWithSchema } from "@/schema/parseWithSchema";
 
 import { assertValidGeneratedTrainingPlan } from "@/features/training-blocks/domain/invariants";
 import {
+  exerciseCatalog,
+  getBenchmarkSourceSlug,
+  getExerciseShortLabel,
+} from "@/features/training-blocks/domain/exerciseCatalog";
+import {
   benchmarkInputSchema,
   type BlockConfiguration,
   type BenchmarkInput,
@@ -36,13 +41,6 @@ const supportLiftPrescriptions = [
   { intensity: 0.7, sets: 5, reps: 4 },
   { intensity: 0.55, sets: 2, reps: 5 },
 ] as const;
-
-const liftDisplayNameBySlug = {
-  "back-squat": "Back Squat",
-  "bench-press": "Bench Press",
-  deadlift: "Deadlift",
-  "overhead-press": "Overhead Press",
-} as const;
 
 const defaultPrimaryLiftPriority: readonly BenchmarkInput["liftSlug"][] = [
   "back-squat",
@@ -310,7 +308,7 @@ export const generateFixedTrainingBlock = (
             sessionId,
             exerciseOrder: exerciseIndex + 1,
             liftSlug,
-            exerciseName: liftDisplayNameBySlug[liftSlug],
+            exerciseName: getExerciseShortLabel(liftSlug),
             prescriptionKind: "fixed-sets",
             sets: 1,
             reps: benchmarkRepsByType[benchmark.benchmarkType],
@@ -360,7 +358,7 @@ export const generateFixedTrainingBlock = (
           : ("secondary" as const);
     const plannedExercises = [
       ...primaryLiftSlugs.map((liftSlug, exerciseIndex) => {
-        const trainingMax = trainingMaxByLiftSlug.get(liftSlug);
+        const trainingMax = trainingMaxByLiftSlug.get(getBenchmarkSourceSlug(liftSlug));
 
         if (trainingMax === undefined) {
           throw new Error(`[training-blocks.generator] Missing training max for ${liftSlug}.`);
@@ -371,7 +369,7 @@ export const generateFixedTrainingBlock = (
           sessionId,
           exerciseOrder: exerciseIndex + 1,
           liftSlug,
-          exerciseName: liftDisplayNameBySlug[liftSlug],
+          exerciseName: getExerciseShortLabel(liftSlug),
           prescriptionKind: "fixed-sets",
           sets: weekPrescription.sets,
           reps: weekPrescription.reps,
@@ -384,7 +382,7 @@ export const generateFixedTrainingBlock = (
         });
       }),
       ...secondaryLiftSlugs.map((liftSlug, exerciseIndex) => {
-        const trainingMax = trainingMaxByLiftSlug.get(liftSlug);
+        const trainingMax = trainingMaxByLiftSlug.get(getBenchmarkSourceSlug(liftSlug));
 
         if (trainingMax === undefined) {
           throw new Error(`[training-blocks.generator] Missing training max for ${liftSlug}.`);
@@ -395,7 +393,7 @@ export const generateFixedTrainingBlock = (
           sessionId,
           exerciseOrder: primaryLiftSlugs.length + exerciseIndex + 1,
           liftSlug,
-          exerciseName: `${liftDisplayNameBySlug[liftSlug]} Support`,
+          exerciseName: exerciseCatalog[liftSlug].defaultSupportLabel ?? `${getExerciseShortLabel(liftSlug)} Support`,
           prescriptionKind: "fixed-sets",
           sets: supportPrescription.sets,
           reps: supportPrescription.reps,
@@ -420,10 +418,10 @@ export const generateFixedTrainingBlock = (
       sessionType,
       title:
         sessionType === "primary"
-          ? `${liftDisplayNameBySlug[leadLiftSlug]} Primary Week ${scheduledSlot.weekIndex}`
+          ? `${getExerciseShortLabel(leadLiftSlug)} Primary Week ${scheduledSlot.weekIndex}`
           : sessionType === "deload"
-            ? `${liftDisplayNameBySlug[leadLiftSlug]} Deload Week ${scheduledSlot.weekIndex}`
-            : `${liftDisplayNameBySlug[leadLiftSlug]} Support Week ${scheduledSlot.weekIndex}`,
+            ? `${getExerciseShortLabel(leadLiftSlug)} Deload Week ${scheduledSlot.weekIndex}`
+            : `${getExerciseShortLabel(leadLiftSlug)} Support Week ${scheduledSlot.weekIndex}`,
       status: "planned" as const,
       lpMetadata: null,
       plannedExercises,
@@ -445,7 +443,7 @@ export const generateFixedTrainingBlock = (
       updatedAt: createdAt,
       schedulingPreferences: options.blockConfiguration.schedulingPreferences,
       blockConfiguration: options.blockConfiguration,
-      notes: `Generated from local benchmark inputs with ${liftDisplayNameBySlug[primaryLiftSlug]} as the primary lift focus over ${options.blockConfiguration.durationWeeks} weeks.`,
+      notes: `Generated from local benchmark inputs with ${getExerciseShortLabel(primaryLiftSlug)} as the primary lift focus over ${options.blockConfiguration.durationWeeks} weeks.`,
     },
     revision: {
       id: revisionId,

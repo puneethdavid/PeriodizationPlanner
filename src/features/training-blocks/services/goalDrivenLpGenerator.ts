@@ -2,6 +2,11 @@ import { parseWithSchema } from "@/schema/parseWithSchema";
 
 import { assertValidGeneratedTrainingPlan } from "@/features/training-blocks/domain/invariants";
 import {
+  exerciseCatalog,
+  getBenchmarkSourceSlug,
+  getExerciseShortLabel,
+} from "@/features/training-blocks/domain/exerciseCatalog";
+import {
   benchmarkInputSchema,
   type BlockConfiguration,
   type BenchmarkInput,
@@ -59,13 +64,6 @@ type ExerciseTemplate = {
   targetRpe: number | null;
   restSeconds: number;
 };
-
-const liftDisplayNameBySlug = {
-  "back-squat": "Back Squat",
-  "bench-press": "Bench Press",
-  deadlift: "Deadlift",
-  "overhead-press": "Overhead Press",
-} as const;
 
 const benchmarkRepsByType: Record<LpCheckpointType, number> = {
   "five-rep-max": 5,
@@ -516,14 +514,22 @@ export const generateGoalDrivenLpTrainingBlock = (
             );
           }
 
-          return createExercise({
-            sessionId,
-            exerciseOrder: exerciseIndex + 1,
-            liftSlug,
-            exerciseName:
+        const sourceBenchmark = benchmarkByLiftSlug.get(getBenchmarkSourceSlug(liftSlug));
+
+        if (sourceBenchmark === undefined) {
+          throw new Error(
+            `[training-blocks.generator] Missing source benchmark input for ${liftSlug} in week ${scheduledSlot.weekIndex}.`,
+          );
+        }
+
+        return createExercise({
+          sessionId,
+          exerciseOrder: exerciseIndex + 1,
+          liftSlug,
+          exerciseName:
               weekContext.phase === "final-test"
-                ? `${liftDisplayNameBySlug[liftSlug]} Final Evaluation`
-                : `${liftDisplayNameBySlug[liftSlug]} Checkpoint`,
+                ? `${getExerciseShortLabel(liftSlug)} Final Evaluation`
+                : `${getExerciseShortLabel(liftSlug)} Checkpoint`,
             prescriptionKind: "fixed-sets",
             sets: 1,
             reps: benchmarkRepsByType[checkpointType],
@@ -576,8 +582,9 @@ export const generateGoalDrivenLpTrainingBlock = (
 
     const plannedExercises = [
       ...primaryLiftSlugs.map((liftSlug, exerciseIndex) => {
-        const benchmark = benchmarkByLiftSlug.get(liftSlug);
-        const expectedLoad = expectedLoadsByLiftSlug.get(liftSlug)?.[scheduledSlot.weekIndex - 1];
+        const sourceLiftSlug = getBenchmarkSourceSlug(liftSlug);
+        const benchmark = benchmarkByLiftSlug.get(sourceLiftSlug);
+        const expectedLoad = expectedLoadsByLiftSlug.get(sourceLiftSlug)?.[scheduledSlot.weekIndex - 1];
 
         if (benchmark === undefined || expectedLoad === undefined) {
           throw new Error(
@@ -589,7 +596,7 @@ export const generateGoalDrivenLpTrainingBlock = (
           sessionId,
           exerciseOrder: exerciseIndex + 1,
           liftSlug,
-          exerciseName: liftDisplayNameBySlug[liftSlug],
+          exerciseName: getExerciseShortLabel(liftSlug),
           prescriptionKind: "fixed-sets",
           sets: phaseTemplate.primary.sets,
           reps: phaseTemplate.primary.reps,
@@ -604,8 +611,9 @@ export const generateGoalDrivenLpTrainingBlock = (
         });
       }),
       ...secondaryLiftSlugs.map((liftSlug, exerciseIndex) => {
-        const benchmark = benchmarkByLiftSlug.get(liftSlug);
-        const expectedLoad = expectedLoadsByLiftSlug.get(liftSlug)?.[scheduledSlot.weekIndex - 1];
+        const sourceLiftSlug = getBenchmarkSourceSlug(liftSlug);
+        const benchmark = benchmarkByLiftSlug.get(sourceLiftSlug);
+        const expectedLoad = expectedLoadsByLiftSlug.get(sourceLiftSlug)?.[scheduledSlot.weekIndex - 1];
 
         if (benchmark === undefined || expectedLoad === undefined) {
           throw new Error(
@@ -617,7 +625,7 @@ export const generateGoalDrivenLpTrainingBlock = (
           sessionId,
           exerciseOrder: primaryLiftSlugs.length + exerciseIndex + 1,
           liftSlug,
-          exerciseName: `${liftDisplayNameBySlug[liftSlug]} Support`,
+          exerciseName: exerciseCatalog[liftSlug].defaultSupportLabel ?? `${getExerciseShortLabel(liftSlug)} Support`,
           prescriptionKind: "fixed-sets",
           sets: phaseTemplate.secondary.sets,
           reps: phaseTemplate.secondary.reps,
@@ -642,7 +650,7 @@ export const generateGoalDrivenLpTrainingBlock = (
       sessionIndex,
       weekIndex: scheduledSlot.weekIndex,
       sessionType,
-      title: `${liftDisplayNameBySlug[leadLiftSlug]} ${weekContext.phase === "taper" ? "Taper" : weekContext.phase === "strength" ? "Strength" : "Volume"} Week ${scheduledSlot.weekIndex}`,
+      title: `${getExerciseShortLabel(leadLiftSlug)} ${weekContext.phase === "taper" ? "Taper" : weekContext.phase === "strength" ? "Strength" : "Volume"} Week ${scheduledSlot.weekIndex}`,
       status: "planned" as const,
       lpMetadata,
       plannedExercises,
@@ -668,7 +676,7 @@ export const generateGoalDrivenLpTrainingBlock = (
         options.blockConfiguration.targetLiftGoals.length === 0
           ? `Generated a ${programStructure.level} LP program with ${phaseInstances.filter((phase) => phase.phase === "strength").length} strength mesocycle(s).`
           : `Generated a ${programStructure.level} LP program toward ${options.blockConfiguration.targetLiftGoals
-              .map((goal) => `${liftDisplayNameBySlug[goal.liftSlug]} ${goal.targetWeight}${benchmarkByLiftSlug.get(goal.liftSlug)?.unit ?? "kg"} ${goal.targetTestType}`)
+              .map((goal) => `${getExerciseShortLabel(goal.liftSlug)} ${goal.targetWeight}${benchmarkByLiftSlug.get(goal.liftSlug)?.unit ?? "kg"} ${goal.targetTestType}`)
               .join(", ")} with ${phaseInstances.filter((phase) => phase.phase === "strength").length} strength mesocycle(s).`,
     },
     revision: {
