@@ -19,22 +19,24 @@ import { buildLpProgramStructureFromBenchmarks } from "@/features/training-block
 import { getUnitProgressionTiers, roundToUnitIncrement } from "@/features/training-blocks/services/lpProgressionStateService";
 import { trainingWeekdayOrder } from "@/features/training-blocks/services/blockSchedulingService";
 
+type GoalDrivenLpPhaseInstance = {
+  phase: LpProgramPhase;
+  durationWeeks: number;
+  mesocycleIndex: number;
+  checkpointType: LpCheckpointType | null;
+};
+
 type GoalDrivenLpGeneratorOptions = {
   startDate: string;
   blockName?: string;
   goalSlug?: string;
   primaryLiftSlug?: BenchmarkInput["liftSlug"];
+  phaseInstancesOverride?: readonly GoalDrivenLpPhaseInstance[];
+  generationVersion?: string;
 };
 
 type GoalDrivenLpGenerationInput = GoalDrivenLpGeneratorOptions & {
   blockConfiguration: BlockConfiguration;
-};
-
-type ProgramPhaseInstance = {
-  phase: LpProgramPhase;
-  durationWeeks: number;
-  mesocycleIndex: number;
-  checkpointType: LpCheckpointType | null;
 };
 
 type ScheduledSlot = {
@@ -299,8 +301,8 @@ const estimateAdditionalStrengthMesocycles = (input: {
 const buildPhaseInstances = (input: {
   programStructure: LpProgramStructure;
   extraStrengthMesocycles: number;
-}): readonly ProgramPhaseInstance[] => {
-  const phaseInstances: ProgramPhaseInstance[] = [];
+}): readonly GoalDrivenLpPhaseInstance[] => {
+  const phaseInstances: GoalDrivenLpPhaseInstance[] = [];
   let strengthMesocycleIndex = 1;
 
   input.programStructure.phases.forEach((phase) => {
@@ -338,7 +340,7 @@ const buildPhaseInstances = (input: {
 };
 
 const buildProgramWeekContexts = (
-  phaseInstances: readonly ProgramPhaseInstance[],
+  phaseInstances: readonly GoalDrivenLpPhaseInstance[],
 ): readonly ProgramWeekContext[] => {
   const weekContexts: ProgramWeekContext[] = [];
 
@@ -449,10 +451,12 @@ export const generateGoalDrivenLpTrainingBlock = (
     benchmarks: benchmarkByLiftSlug,
     programStructure,
   });
-  const phaseInstances = buildPhaseInstances({
-    programStructure,
-    extraStrengthMesocycles,
-  });
+  const phaseInstances =
+    options.phaseInstancesOverride ??
+    buildPhaseInstances({
+      programStructure,
+      extraStrengthMesocycles,
+    });
   const weekContexts = buildProgramWeekContexts(phaseInstances);
   const expectedLoadsByLiftSlug = buildLiftExpectedLoadsByWeek({
     benchmarks: normalizedBenchmarks,
@@ -655,7 +659,7 @@ export const generateGoalDrivenLpTrainingBlock = (
       startDate: options.startDate,
       endDate: lastScheduledDate,
       benchmarkSnapshotId,
-      generationVersion: "v2-goal-driven-linear-periodization",
+      generationVersion: options.generationVersion ?? "v2-goal-driven-linear-periodization",
       createdAt,
       updatedAt: createdAt,
       schedulingPreferences: options.blockConfiguration.schedulingPreferences,
@@ -679,4 +683,5 @@ export const generateGoalDrivenLpTrainingBlock = (
   });
 };
 
-export type { GoalDrivenLpGeneratorOptions };
+export { buildPhaseInstances as buildGoalDrivenLpPhaseInstances };
+export type { GoalDrivenLpGeneratorOptions, GoalDrivenLpPhaseInstance };

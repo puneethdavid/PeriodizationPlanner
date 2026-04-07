@@ -14,5 +14,6 @@ export * from "@/features/training-blocks/services/trainingBlockAdaptationServic
 export * from "@/features/training-blocks/services/devTrainingSeedService";
 export * from "@/features/training-blocks/services/goalDrivenLpGenerator";
 export * from "@/features/training-blocks/services/fixedBlockGenerator";
+export * from "@/features/training-blocks/services/linearPeriodizationAdaptationService";
 export * from "@/features/training-blocks/services/trainingBlockCreationService";
 export * from "@/features/training-blocks/services/trainingMaxService";

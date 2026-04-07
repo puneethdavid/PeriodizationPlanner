@@ -10,6 +10,7 @@ import {
   blockSchedulingPreferencesSchema,
   generatedTrainingPlanSchema,
   loggedSetResultSchema,
+  explanationRecordSchema,
   lpCheckpointResultSchema,
   lpGoalProgressSchema,
   lpLiftProgressionStateSchema,
@@ -25,6 +26,8 @@ import {
   type BlockConfiguration,
   type BlockSchedulingPreferences,
   type BlockRevision,
+  type AdaptationEvent,
+  type ExplanationRecord,
   type GeneratedTrainingPlan,
   type LoggedSetResult,
   type LiftGoal,
@@ -1973,6 +1976,353 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       adaptationEvents,
       explanationRecords,
     };
+  }
+
+  async persistLinearPeriodizationRevisionAsync(input: {
+    blockId: string;
+    triggeringSessionId: string;
+    revisionReason: string;
+    revisionSummary: string;
+    updatedFutureSessions: readonly PlannedSession[];
+    programState: LpProgramState;
+    liftStates: readonly LpLiftProgressionState[];
+    checkpointResults: readonly LpCheckpointResult[];
+    goalProgress: readonly LpGoalProgress[];
+    mesocycleExtensions: readonly {
+      id: string;
+      blockId: string;
+      triggeredByCheckpointResultId: string | null;
+      addedPhase: string;
+      addedWeeks: number;
+      reason: string;
+      createdAt: string;
+    }[];
+    adaptationEvents: readonly AdaptationEvent[];
+    explanationRecords: readonly ExplanationRecord[];
+  }): Promise<void> {
+    const createdAt = new Date().toISOString();
+    const [latestRevision, triggeringSessionRow] = await Promise.all([
+      this.getLatestBlockRevisionAsync(input.blockId),
+      this.database.getFirstAsync<PlannedSessionRow>(
+        `
+          SELECT
+            id,
+            block_id,
+            block_revision_id,
+            scheduled_date,
+            scheduled_weekday,
+            session_index,
+            week_index,
+            session_type,
+            title,
+            status,
+            lp_metadata
+          FROM planned_sessions
+          WHERE id = ?
+          LIMIT 1
+        `,
+        input.triggeringSessionId,
+      ),
+    ]);
+
+    if (latestRevision === null || triggeringSessionRow === null) {
+      throw new Error(`[training-blocks] Missing latest revision for block ${input.blockId}.`);
+    }
+
+    const nextRevision = parseWithSchema(
+      blockRevisionSchema,
+      {
+        id: makeId("revision"),
+        blockId: input.blockId,
+        revisionNumber: latestRevision.revisionNumber + 1,
+        reason: input.revisionReason,
+        summary: input.revisionSummary,
+        createdAt,
+      },
+      "training-blocks.persist-linear-periodization-revision",
+    );
+
+    const normalizedFutureSessions = input.updatedFutureSessions.map((session, index) =>
+      parseWithSchema(
+        plannedSessionSchema,
+        {
+          ...session,
+          id: makeId("session"),
+          blockId: input.blockId,
+          blockRevisionId: nextRevision.id,
+          sessionIndex: triggeringSessionRow.session_index + index + 1,
+          weekIndex: triggeringSessionRow.week_index + session.weekIndex - 1,
+        },
+        "training-blocks.persist-linear-periodization-session",
+      ),
+    );
+
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.runAsync(
+        `
+          INSERT INTO block_revisions (
+            id,
+            block_id,
+            revision_number,
+            reason,
+            summary,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        nextRevision.id,
+        nextRevision.blockId,
+        nextRevision.revisionNumber,
+        nextRevision.reason,
+        nextRevision.summary,
+        nextRevision.createdAt,
+      );
+
+      await transaction.runAsync(
+        `
+          DELETE FROM planned_sessions
+          WHERE block_id = ?
+            AND status = 'planned'
+        `,
+        input.blockId,
+      );
+
+      for (const session of normalizedFutureSessions) {
+        await transaction.runAsync(
+          `
+            INSERT INTO planned_sessions (
+              id,
+              block_id,
+              block_revision_id,
+              scheduled_date,
+              scheduled_weekday,
+              session_index,
+              week_index,
+              session_type,
+              title,
+              status,
+              lp_metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          session.id,
+          session.blockId,
+          session.blockRevisionId,
+          session.scheduledDate,
+          session.scheduledWeekday,
+          session.sessionIndex,
+          session.weekIndex,
+          session.sessionType,
+          session.title,
+          session.status,
+          session.lpMetadata === null ? null : JSON.stringify(session.lpMetadata),
+        );
+
+        for (const exercise of session.plannedExercises) {
+          await transaction.runAsync(
+            `
+              INSERT INTO planned_exercises (
+                id,
+                session_id,
+                lift_slug,
+                exercise_slug,
+                exercise_name,
+                exercise_order,
+                prescription_kind
+              ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            `,
+            exercise.id,
+            session.id,
+            exercise.liftSlug,
+            exercise.exerciseSlug,
+            exercise.exerciseName,
+            exercise.exerciseOrder,
+            exercise.prescriptionKind,
+          );
+
+          for (const plannedSet of exercise.plannedSets) {
+            await transaction.runAsync(
+              `
+                INSERT INTO planned_sets (
+                  id,
+                  planned_exercise_id,
+                  set_index,
+                  target_reps,
+                  target_load,
+                  target_rpe,
+                  rest_seconds,
+                  tempo,
+                  is_amrap
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `,
+              plannedSet.id,
+              exercise.id,
+              plannedSet.setIndex,
+              plannedSet.targetReps,
+              plannedSet.targetLoad,
+              plannedSet.targetRpe,
+              plannedSet.restSeconds,
+              plannedSet.tempo,
+              plannedSet.isAmrap ? 1 : 0,
+            );
+          }
+        }
+      }
+
+      await transaction.runAsync(
+        `
+          INSERT OR REPLACE INTO lp_program_states (
+            block_id,
+            state_json,
+            updated_at
+          ) VALUES (?, ?, ?)
+        `,
+        input.programState.blockId,
+        JSON.stringify(input.programState),
+        input.programState.updatedAt,
+      );
+
+      await transaction.runAsync(`DELETE FROM lp_lift_progression_states WHERE block_id = ?`, input.blockId);
+      for (const liftState of input.liftStates) {
+        await transaction.runAsync(
+          `
+            INSERT INTO lp_lift_progression_states (
+              id,
+              block_id,
+              lift_slug,
+              state_json,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+          `,
+          liftState.id,
+          liftState.blockId,
+          liftState.liftSlug,
+          JSON.stringify(liftState),
+          liftState.updatedAt,
+        );
+      }
+
+      for (const checkpointResult of input.checkpointResults) {
+        await transaction.runAsync(
+          `
+            INSERT INTO lp_checkpoint_results (
+              id,
+              block_id,
+              session_id,
+              lift_slug,
+              checkpoint_type,
+              expected_load,
+              actual_load,
+              status,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          checkpointResult.id,
+          checkpointResult.blockId,
+          checkpointResult.sessionId,
+          checkpointResult.liftSlug,
+          checkpointResult.checkpointType,
+          checkpointResult.expectedLoad,
+          checkpointResult.actualLoad,
+          checkpointResult.status,
+          checkpointResult.createdAt,
+        );
+      }
+
+      for (const goalProgress of input.goalProgress) {
+        await transaction.runAsync(
+          `
+            INSERT OR REPLACE INTO lp_goal_progress (
+              id,
+              block_id,
+              lift_slug,
+              target_weight,
+              target_test_type,
+              expected_checkpoint_load,
+              actual_checkpoint_load,
+              status,
+              remaining_delta,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          goalProgress.id,
+          goalProgress.blockId,
+          goalProgress.liftSlug,
+          goalProgress.targetWeight,
+          goalProgress.targetTestType,
+          goalProgress.expectedCheckpointLoad,
+          goalProgress.actualCheckpointLoad,
+          goalProgress.status,
+          goalProgress.remainingDelta,
+          goalProgress.updatedAt,
+        );
+      }
+
+      for (const extension of input.mesocycleExtensions) {
+        await transaction.runAsync(
+          `
+            INSERT INTO lp_mesocycle_extensions (
+              id,
+              block_id,
+              triggered_by_checkpoint_result_id,
+              added_phase,
+              added_weeks,
+              reason,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+          extension.id,
+          extension.blockId,
+          extension.triggeredByCheckpointResultId,
+          extension.addedPhase,
+          extension.addedWeeks,
+          extension.reason,
+          extension.createdAt,
+        );
+      }
+
+      for (const adaptationEvent of input.adaptationEvents) {
+        await transaction.runAsync(
+          `
+            INSERT INTO adaptation_events (
+              id,
+              block_id,
+              block_revision_id,
+              triggered_at,
+              event_type,
+              reason_code,
+              summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+          adaptationEvent.id,
+          adaptationEvent.blockId,
+          nextRevision.id,
+          adaptationEvent.triggeredAt,
+          adaptationEvent.eventType,
+          adaptationEvent.reasonCode,
+          adaptationEvent.summary,
+        );
+      }
+
+      for (const explanationRecord of input.explanationRecords) {
+        await transaction.runAsync(
+          `
+            INSERT INTO explanation_records (
+              id,
+              owner_type,
+              owner_id,
+              created_at,
+              headline,
+              body
+            ) VALUES (?, ?, ?, ?, ?, ?)
+          `,
+          explanationRecord.id,
+          explanationRecord.ownerType,
+          explanationRecord.ownerId,
+          explanationRecord.createdAt,
+          explanationRecord.headline,
+          explanationRecord.body,
+        );
+      }
+    });
   }
 
   async completeSessionAsPlannedAsync(sessionId: string): Promise<void> {
