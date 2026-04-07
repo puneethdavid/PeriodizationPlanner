@@ -10,6 +10,7 @@ export const queryKeys = {
     setupPreferences: () => ["training-blocks", "setup-preferences"] as const,
     activePlan: () => ["training-blocks", "active-plan"] as const,
     archivedPlans: () => ["training-blocks", "archived-plans"] as const,
+    adaptationSummaries: () => ["training-blocks", "adaptation-summaries"] as const,
     overview: () => ["training-blocks", "overview"] as const,
   },
   today: {

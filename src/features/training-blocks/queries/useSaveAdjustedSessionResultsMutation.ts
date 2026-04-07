@@ -54,6 +54,9 @@ export const useSaveAdjustedSessionResultsMutation = (sessionId: string | null) 
           queryKey: queryKeys.trainingBlocks.activePlan(),
         }),
         queryClient.invalidateQueries({
+          queryKey: queryKeys.trainingBlocks.adaptationSummaries(),
+        }),
+        queryClient.invalidateQueries({
           queryKey: queryKeys.trainingBlocks.archivedPlans(),
         }),
       ]);

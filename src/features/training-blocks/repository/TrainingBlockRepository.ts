@@ -188,6 +188,19 @@ type SessionCountRow = {
   final_test_sessions: number;
 };
 
+type AdaptationSummaryRow = {
+  event_id: string;
+  block_revision_id: string | null;
+  triggered_at: string;
+  event_type: "generation" | "progression-adjustment" | "deload-adjustment";
+  reason_code: string;
+  summary: string;
+  event_headline: string | null;
+  event_body: string | null;
+  revision_headline: string | null;
+  revision_body: string | null;
+};
+
 export type ArchivedTrainingBlockSummary = {
   blockId: string;
   blockName: string;
@@ -207,6 +220,19 @@ export type WorkoutSessionReview = {
   session: PlannedSession;
   workoutResult: WorkoutResult | null;
   loggedSetResults: readonly LoggedSetResult[];
+};
+
+export type AdaptationSummary = {
+  eventId: string;
+  blockRevisionId: string | null;
+  triggeredAt: string;
+  eventType: "generation" | "progression-adjustment" | "deload-adjustment";
+  reasonCode: string;
+  summary: string;
+  headline: string;
+  body: string;
+  revisionHeadline: string | null;
+  revisionBody: string | null;
 };
 
 const makeId = (prefix: string): string => {
@@ -1898,5 +1924,52 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
         };
       }),
     );
+  }
+
+  async getActiveBlockAdaptationSummariesAsync(): Promise<readonly AdaptationSummary[]> {
+    const activeBlock = await this.getActiveTrainingBlockAsync();
+
+    if (activeBlock === null) {
+      return [];
+    }
+
+    const rows = await this.database.getAllAsync<AdaptationSummaryRow>(
+      `
+        SELECT
+          adaptation_events.id AS event_id,
+          adaptation_events.block_revision_id AS block_revision_id,
+          adaptation_events.triggered_at AS triggered_at,
+          adaptation_events.event_type AS event_type,
+          adaptation_events.reason_code AS reason_code,
+          adaptation_events.summary AS summary,
+          event_explanation.headline AS event_headline,
+          event_explanation.body AS event_body,
+          revision_explanation.headline AS revision_headline,
+          revision_explanation.body AS revision_body
+        FROM adaptation_events
+        LEFT JOIN explanation_records AS event_explanation
+          ON event_explanation.owner_type = 'adaptation-event'
+         AND event_explanation.owner_id = adaptation_events.id
+        LEFT JOIN explanation_records AS revision_explanation
+          ON revision_explanation.owner_type = 'block-revision'
+         AND revision_explanation.owner_id = adaptation_events.block_revision_id
+        WHERE adaptation_events.block_id = ?
+        ORDER BY adaptation_events.triggered_at DESC, adaptation_events.id DESC
+      `,
+      activeBlock.block.id,
+    );
+
+    return rows.map((row) => ({
+      eventId: row.event_id,
+      blockRevisionId: row.block_revision_id,
+      triggeredAt: row.triggered_at,
+      eventType: row.event_type,
+      reasonCode: row.reason_code,
+      summary: row.summary,
+      headline: row.event_headline ?? "Recent plan change",
+      body: row.event_body ?? row.summary,
+      revisionHeadline: row.revision_headline,
+      revisionBody: row.revision_body,
+    }));
   }
 }

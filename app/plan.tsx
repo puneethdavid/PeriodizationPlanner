@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, EmptyState, ListRow, LoadingState, ScreenContainer } from "@/components/ui";
+import { useAdaptationSummariesQuery } from "@/features/training-blocks/queries/useAdaptationSummariesQuery";
 import { useArchivedTrainingBlocksQuery } from "@/features/training-blocks/queries/useArchivedTrainingBlocksQuery";
 import { useBlockOverviewQuery } from "@/features/training-blocks/queries/useBlockOverviewQuery";
 import { appTheme } from "@/theme/appTheme";
@@ -10,8 +11,13 @@ const BlockOverviewScreen = () => {
   const router = useRouter();
   const blockOverviewQuery = useBlockOverviewQuery();
   const archivedBlocksQuery = useArchivedTrainingBlocksQuery();
+  const adaptationSummariesQuery = useAdaptationSummariesQuery();
 
-  if (blockOverviewQuery.isLoading || archivedBlocksQuery.isLoading) {
+  if (
+    blockOverviewQuery.isLoading ||
+    archivedBlocksQuery.isLoading ||
+    adaptationSummariesQuery.isLoading
+  ) {
     return (
       <ScreenContainer
         eyebrow="Full Plan"
@@ -30,6 +36,7 @@ const BlockOverviewScreen = () => {
 
   const overview = blockOverviewQuery.data;
   const archivedBlocks = archivedBlocksQuery.data ?? [];
+  const adaptationSummaries = adaptationSummariesQuery.data ?? [];
 
   return (
     <ScreenContainer
@@ -73,6 +80,33 @@ const BlockOverviewScreen = () => {
                   : `${overview.trainingDaysPerWeek} training days per week on ${overview.selectedWeekdaysLabel ?? "saved weekdays"}`}
               </Text>
             </View>
+          </Card>
+
+          <Card>
+            <View style={styles.weekHeader}>
+              <Text style={styles.weekTitle}>Recent adaptations</Text>
+              <Text style={styles.weekMeta}>{adaptationSummaries.length}</Text>
+            </View>
+            {adaptationSummaries.length === 0 ? (
+              <Text style={styles.blockMeta}>
+                No workout feedback has changed the plan yet. When adaptation runs after a logged
+                session, the latest revision reasons will appear here.
+              </Text>
+            ) : (
+              adaptationSummaries.map((adaptationSummary) => (
+                <View key={adaptationSummary.eventId} style={styles.adaptationItem}>
+                  <ListRow
+                    title={adaptationSummary.headline}
+                    description={`${adaptationSummary.triggeredAt.slice(0, 10)} • ${adaptationSummary.reasonCode}`}
+                    trailing={adaptationSummary.eventType.replace("-", " ")}
+                  />
+                  <Text style={styles.adaptationBody}>{adaptationSummary.body}</Text>
+                  {adaptationSummary.revisionBody === null ? null : (
+                    <Text style={styles.adaptationMeta}>{adaptationSummary.revisionBody}</Text>
+                  )}
+                </View>
+              ))
+            )}
           </Card>
 
           {overview.weeks.map((week) => (
@@ -163,6 +197,19 @@ const styles = StyleSheet.create({
   blockMeta: {
     fontSize: 14,
     lineHeight: 21,
+    color: appTheme.colors.textSecondary,
+  },
+  adaptationItem: {
+    gap: appTheme.spacing.xs,
+  },
+  adaptationBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: appTheme.colors.textPrimary,
+  },
+  adaptationMeta: {
+    fontSize: 13,
+    lineHeight: 20,
     color: appTheme.colors.textSecondary,
   },
   weekHeader: {
