@@ -11,7 +11,7 @@ import {
   NumberField,
   ScreenContainer,
 } from "@/components/ui";
-import { usePlannedSessionDetailQuery } from "@/features/training-blocks/queries/usePlannedSessionDetailQuery";
+import { useCompletedWorkoutDetailQuery } from "@/features/training-blocks/queries/useCompletedWorkoutDetailQuery";
 import { useQuickCompleteSessionMutation } from "@/features/training-blocks/queries/useQuickCompleteSessionMutation";
 import { useSaveAdjustedSessionResultsMutation } from "@/features/training-blocks/queries/useSaveAdjustedSessionResultsMutation";
 import { formatTrainingWeekday } from "@/features/training-blocks/services/blockSchedulingService";
@@ -22,7 +22,7 @@ const WorkoutDetailScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams<{ sessionId?: string }>();
   const sessionId = typeof params.sessionId === "string" ? params.sessionId : null;
-  const plannedSessionQuery = usePlannedSessionDetailQuery(sessionId);
+  const workoutReviewQuery = useCompletedWorkoutDetailQuery(sessionId);
   const quickCompleteSessionMutation = useQuickCompleteSessionMutation(sessionId);
   const saveAdjustedSessionResultsMutation = useSaveAdjustedSessionResultsMutation(sessionId);
   const [isAdjustedEntryVisible, setIsAdjustedEntryVisible] = useState(false);
@@ -33,29 +33,29 @@ const WorkoutDetailScreen = () => {
     {},
   );
 
-  if (plannedSessionQuery.isLoading) {
+  if (workoutReviewQuery.isLoading) {
     return (
       <ScreenContainer
         eyebrow="Workout Detail"
         title="Workout detail"
-        description="Review the planned exercises and set targets for the selected session."
+        description="Review the planned session and any logged results for the selected workout."
       >
         <Card>
           <LoadingState
             title="Loading session"
-            description="Fetching the planned exercises, sets, and session structure from local data."
+            description="Fetching the planned exercises, logged set results, and block context from local data."
           />
         </Card>
       </ScreenContainer>
     );
   }
 
-  if (sessionId === null || plannedSessionQuery.data === null || plannedSessionQuery.data === undefined) {
+  if (sessionId === null || workoutReviewQuery.data === null || workoutReviewQuery.data === undefined) {
     return (
       <ScreenContainer
         eyebrow="Workout Detail"
         title="Workout detail"
-        description="Review the planned exercises and set targets for the selected session."
+        description="Review the planned session and any logged results for the selected workout."
       >
         <Card>
           <EmptyState
@@ -76,12 +76,19 @@ const WorkoutDetailScreen = () => {
     );
   }
 
-  const plannedSession = plannedSessionQuery.data;
+  const workoutReview = workoutReviewQuery.data;
+  const plannedSession = workoutReview.session;
+  const workoutResult = workoutReview.workoutResult;
   const isCompleted = plannedSession.status === "completed";
   const isBenchmarkSession = plannedSession.sessionType === "benchmark";
   const isFinalTestSession = plannedSession.sessionType === "final-test";
   const isEvaluationSession = isBenchmarkSession || isFinalTestSession;
   const scheduledWeekdayLabel = formatTrainingWeekday(plannedSession.scheduledWeekday);
+  const loggedSetResultByPlannedSetId = new Map(
+    workoutReview.loggedSetResults
+      .filter((loggedSetResult) => loggedSetResult.plannedSetId !== null)
+      .map((loggedSetResult) => [loggedSetResult.plannedSetId as string, loggedSetResult] as const),
+  );
 
   const updateAdjustedValue = (
     plannedSetId: string,
@@ -139,8 +146,8 @@ const WorkoutDetailScreen = () => {
       title={plannedSession.title}
       description={
         isEvaluationSession
-          ? "Benchmark and final-test sessions use a dedicated capture path so the result is easy to review and save distinctly."
-          : "This screen shows the planned execution details only. Logging flows will wire in next."
+          ? "Benchmark and final-test sessions keep setup benchmarks, scheduled testing work, and recorded outcomes clearly separated."
+          : "Review the planned session details and any recorded results for this workout."
       }
     >
       <Card>
@@ -186,15 +193,43 @@ const WorkoutDetailScreen = () => {
         </View>
       </Card>
 
+      <Card>
+        <Text style={styles.testSessionTitle}>Block context</Text>
+        <Text style={styles.testSessionDescription}>
+          {workoutReview.block.name}
+          {workoutReview.block.status === "archived"
+            ? " is archived after a later regeneration."
+            : " is the current active block."}
+        </Text>
+        {workoutResult !== null ? (
+          <>
+            <Text style={styles.testSessionTitle}>
+              {isEvaluationSession ? "Recorded evaluation outcome" : "Recorded workout outcome"}
+            </Text>
+            <Text style={styles.testSessionDescription}>
+              {workoutResult.completionStatus} on {workoutResult.completedAt.slice(0, 10)}.
+              {isBenchmarkSession
+                ? " This is the recorded benchmark result for the scheduled benchmark session."
+                : isFinalTestSession
+                  ? " This is the recorded final-test result for the scheduled final-test session."
+                  : " This is the recorded result for the scheduled workout session."}
+            </Text>
+          </>
+        ) : (
+          <Text style={styles.testSessionDescription}>
+            No recorded result has been saved yet for this session.
+          </Text>
+        )}
+      </Card>
+
       {isEvaluationSession ? (
         <Card>
           <Text style={styles.testSessionTitle}>
             {isBenchmarkSession ? "Benchmark capture flow" : "Final test capture flow"}
           </Text>
           <Text style={styles.testSessionDescription}>
-            Use this path for testing and benchmark refresh work. The saved result stays tied to
-            the evaluation session so later plan review can distinguish it from normal training
-            work.
+            Saved benchmark inputs are the setup values used to generate the plan. This scheduled
+            session is the separate testing workout where the recorded benchmark outcome is logged.
           </Text>
         </Card>
       ) : null}
@@ -206,16 +241,23 @@ const WorkoutDetailScreen = () => {
             <Text style={styles.exerciseMeta}>{exercise.prescriptionKind}</Text>
           </View>
           {exercise.plannedSets.map((plannedSet) => (
-            <ListRow
-              key={plannedSet.id}
-              title={`Set ${plannedSet.setIndex}`}
-              description={`${plannedSet.targetReps} reps at ${plannedSet.targetLoad}${exercise.liftSlug === "deadlift" ? " kg" : " kg"}`}
-              trailing={
-                plannedSet.targetRpe === null
-                  ? `${plannedSet.restSeconds ?? 0}s rest`
-                  : `RPE ${plannedSet.targetRpe}`
-              }
-            />
+            <View key={plannedSet.id} style={styles.setReviewBlock}>
+              <ListRow
+                title={`Set ${plannedSet.setIndex}`}
+                description={`Planned: ${plannedSet.targetReps} reps at ${plannedSet.targetLoad} kg`}
+                trailing={
+                  plannedSet.targetRpe === null
+                    ? `${plannedSet.restSeconds ?? 0}s rest`
+                    : `RPE ${plannedSet.targetRpe}`
+                }
+              />
+              {loggedSetResultByPlannedSetId.has(plannedSet.id) ? (
+                <Text style={styles.loggedResultText}>
+                  Recorded: {loggedSetResultByPlannedSetId.get(plannedSet.id)?.actualReps ?? "-"} reps
+                  at {loggedSetResultByPlannedSetId.get(plannedSet.id)?.actualLoad ?? "-"} kg
+                </Text>
+              ) : null}
+            </View>
           ))}
         </Card>
       ))}
@@ -299,7 +341,7 @@ const WorkoutDetailScreen = () => {
             </Text>
             <Text style={styles.adjustedDescription}>
               {isEvaluationSession
-                ? "Record the actual testing output so it can be identified separately from normal training execution."
+                ? "Record the actual testing output so it can be reviewed separately from the saved benchmark setup values."
                 : "Save actual reps and load for sets that were modified, partially completed, or missed."}
             </Text>
           </View>
@@ -323,10 +365,8 @@ const WorkoutDetailScreen = () => {
                   <Text style={styles.adjustedSetTitle}>Set {plannedSet.setIndex}</Text>
                   <NumberField
                     helperText={
-                      isBenchmarkSession
-                        ? `Benchmark target reps: ${plannedSet.targetReps}`
-                        : isFinalTestSession
-                        ? `Benchmark target reps: ${plannedSet.targetReps}`
+                      isBenchmarkSession || isFinalTestSession
+                        ? `Planned test reps: ${plannedSet.targetReps}`
                         : `Default planned reps: ${plannedSet.targetReps}`
                     }
                     label={isEvaluationSession ? "Recorded reps" : "Actual reps"}
@@ -337,10 +377,8 @@ const WorkoutDetailScreen = () => {
                   />
                   <NumberField
                     helperText={
-                      isBenchmarkSession
-                        ? `Benchmark target load: ${plannedSet.targetLoad} kg`
-                        : isFinalTestSession
-                        ? `Benchmark target load: ${plannedSet.targetLoad} kg`
+                      isBenchmarkSession || isFinalTestSession
+                        ? `Planned test load: ${plannedSet.targetLoad} kg`
                         : `Default planned load: ${plannedSet.targetLoad} kg`
                     }
                     label={isEvaluationSession ? "Recorded load" : "Actual load"}
@@ -375,9 +413,11 @@ const WorkoutDetailScreen = () => {
       ) : null}
       <Card>
         <Button
-          label="Back to Today"
+          label={workoutReview.block.status === "archived" ? "Back to History" : "Back to Today"}
           onPress={() => {
-            router.push("/(tabs)/today");
+            router.push(
+              workoutReview.block.status === "archived" ? "/(tabs)/history" : "/(tabs)/today",
+            );
           }}
           variant="secondary"
         />
@@ -448,6 +488,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: appTheme.colors.textSecondary,
     textTransform: "capitalize",
+  },
+  setReviewBlock: {
+    gap: 6,
+  },
+  loggedResultText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: appTheme.colors.textSecondary,
   },
   errorText: {
     fontSize: 13,

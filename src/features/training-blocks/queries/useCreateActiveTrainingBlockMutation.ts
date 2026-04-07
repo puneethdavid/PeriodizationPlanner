@@ -39,6 +39,9 @@ export const useCreateActiveTrainingBlockMutation = () => {
           queryKey: queryKeys.trainingBlocks.activePlan(),
         }),
         queryClient.invalidateQueries({
+          queryKey: queryKeys.trainingBlocks.archivedPlans(),
+        }),
+        queryClient.invalidateQueries({
           queryKey: queryKeys.trainingBlocks.setupPreferences(),
         }),
         queryClient.invalidateQueries({

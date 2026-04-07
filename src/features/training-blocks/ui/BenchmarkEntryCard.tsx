@@ -90,7 +90,9 @@ export const BenchmarkEntryCard = () => {
       <View style={styles.header}>
         <Text style={styles.title}>Benchmark setup</Text>
         <Text style={styles.description}>
-          Save the current starting benchmarks for the core lifts before generating a block.
+          Save the starting benchmark inputs for the core lifts before generating a block. These
+          saved values seed block generation and stay separate from later benchmark or final-test
+          workout results.
         </Text>
       </View>
       {Object.entries(benchmarkFieldMetadata).map(([liftSlug, metadata]) => (

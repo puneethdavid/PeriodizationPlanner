@@ -1,14 +1,21 @@
 import { useRouter } from "expo-router";
 import { Alert, StyleSheet, Text, View } from "react-native";
 
-import { Button, Card } from "@/components/ui";
+import { Button, Card, ListRow } from "@/components/ui";
 import { useActiveTrainingBlockQuery } from "@/features/training-blocks/queries/useActiveTrainingBlockQuery";
 import { useBenchmarksQuery } from "@/features/training-blocks/queries/useBenchmarksQuery";
 import { useBlockConfigurationQuery } from "@/features/training-blocks/queries/useBlockConfigurationQuery";
 import { useCreateActiveTrainingBlockMutation } from "@/features/training-blocks/queries/useCreateActiveTrainingBlockMutation";
 import {
+  getReadinessWarnings,
+  summarizeGenerationReview,
+  summarizeLiftPools,
+  summarizeSavedBenchmarks,
+} from "@/features/training-blocks/services/blockGenerationReadinessService";
+import {
   doesConfigurationRequireRegeneration,
   regenerationRules,
+  summarizeConfigurationChanges,
 } from "@/features/training-blocks/services/blockRegenerationService";
 import { summarizeBlockConfiguration } from "@/features/training-blocks/services/blockConfigurationService";
 import { appTheme } from "@/theme/appTheme";
@@ -30,7 +37,19 @@ export const BlockGenerationCard = () => {
   const generationReady = hasRequiredBenchmarks && hasSavedBlockConfiguration;
   const activePlan = activeTrainingBlockQuery.data;
   const nextSession = activePlan?.sessions[0];
+  const readinessWarnings = getReadinessWarnings(benchmarksQuery.data, savedBlockConfiguration);
+  const savedBenchmarkSummaries = summarizeSavedBenchmarks(benchmarksQuery.data);
+  const generationReview = hasSavedBlockConfiguration
+    ? summarizeGenerationReview(savedBlockConfiguration)
+    : [];
+  const liftPoolReview = hasSavedBlockConfiguration
+    ? summarizeLiftPools(savedBlockConfiguration)
+    : [];
   const requiresRegeneration = doesConfigurationRequireRegeneration(
+    activePlan?.block.blockConfiguration ?? null,
+    savedBlockConfiguration ?? null,
+  );
+  const configurationChangeSummary = summarizeConfigurationChanges(
     activePlan?.block.blockConfiguration ?? null,
     savedBlockConfiguration ?? null,
   );
@@ -50,9 +69,14 @@ export const BlockGenerationCard = () => {
 
   const handleGenerate = async () => {
     if (requiresRegeneration) {
+      const confirmationSummary =
+        configurationChangeSummary.length === 0
+          ? "The saved setup no longer matches the active block."
+          : configurationChangeSummary.map((change) => `- ${change}`).join("\n");
+
       Alert.alert(
         "Replace current active block?",
-        `${regenerationRules.summary}\n\n${regenerationRules.activeBlockReplacement}`,
+        `${regenerationRules.summary}\n\n${confirmationSummary}\n\n${regenerationRules.activeBlockReplacement}`,
         [
           {
             style: "cancel",
@@ -89,9 +113,49 @@ export const BlockGenerationCard = () => {
             ? `Save all ${requiredBenchmarkCount} benchmarks before generating a block.`
             : "Save a valid block configuration before generating a block."}
       </Text>
+      <View style={styles.summaryBlock}>
+        <Text style={styles.summaryLabel}>Saved benchmark inputs</Text>
+        {savedBenchmarkSummaries.map((summary) => (
+          <Text key={summary} style={styles.summaryCopy}>
+            {summary}
+          </Text>
+        ))}
+      </View>
       {hasSavedBlockConfiguration ? (
-        <Text style={styles.status}>{summarizeBlockConfiguration(savedBlockConfiguration)}</Text>
+        <>
+          <Text style={styles.status}>{summarizeBlockConfiguration(savedBlockConfiguration)}</Text>
+          <View style={styles.summaryBlock}>
+            <Text style={styles.summaryLabel}>Generation review</Text>
+            {generationReview.map((summary) => (
+              <Text key={summary} style={styles.summaryCopy}>
+                {summary}
+              </Text>
+            ))}
+            {liftPoolReview.map((summary) => (
+              <Text key={summary} style={styles.summaryCopy}>
+                {summary}
+              </Text>
+            ))}
+          </View>
+        </>
       ) : null}
+      {readinessWarnings.length > 0 ? (
+        <View style={styles.summaryBlock}>
+          <Text style={styles.summaryLabel}>Readiness checks</Text>
+          {readinessWarnings.map((warning) => (
+            <Text key={warning} style={[styles.summaryCopy, styles.warningText]}>
+              {warning}
+            </Text>
+          ))}
+        </View>
+      ) : (
+        <View style={styles.summaryBlock}>
+          <Text style={styles.summaryLabel}>Readiness checks</Text>
+          <Text style={styles.summaryCopy}>
+            Saved benchmark inputs and block setup are ready for generation.
+          </Text>
+        </View>
+      )}
       {activePlan !== null && activePlan !== undefined ? (
         <View style={styles.activePlanSummary}>
           <Text style={styles.activePlanLabel}>Current active block</Text>
@@ -99,10 +163,21 @@ export const BlockGenerationCard = () => {
           <Text style={styles.activePlanMeta}>
             Next session: {nextSession?.title ?? "No planned sessions yet"}
           </Text>
+          <ListRow
+            title="Saved benchmark inputs vs. benchmark sessions"
+            description="Saved benchmark inputs seed generation. Benchmark and final-test sessions are separate scheduled workouts and later logged outcomes."
+          />
           {requiresRegeneration ? (
-            <Text style={[styles.activePlanMeta, styles.warningText]}>
-              Saved setup changes require confirmation before the active block is replaced.
-            </Text>
+            <>
+              <Text style={[styles.activePlanMeta, styles.warningText]}>
+                Saved setup changes require confirmation before the active block is replaced.
+              </Text>
+              {configurationChangeSummary.map((summary) => (
+                <Text key={summary} style={styles.activePlanMeta}>
+                  {summary}
+                </Text>
+              ))}
+            </>
           ) : null}
         </View>
       ) : null}
@@ -148,6 +223,24 @@ const styles = StyleSheet.create({
   },
   status: {
     fontSize: 13,
+    color: appTheme.colors.textSecondary,
+  },
+  summaryBlock: {
+    gap: appTheme.spacing.xs,
+    borderRadius: appTheme.radius.md,
+    padding: appTheme.spacing.md,
+    backgroundColor: appTheme.colors.surfaceMuted,
+  },
+  summaryLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    color: appTheme.colors.textMuted,
+  },
+  summaryCopy: {
+    fontSize: 14,
+    lineHeight: 21,
     color: appTheme.colors.textSecondary,
   },
   error: {

@@ -4,12 +4,12 @@ import { useAppDatabase } from "@/database/AppDatabaseProvider";
 import { TrainingBlockRepository } from "@/features/training-blocks/repository/TrainingBlockRepository";
 import { queryKeys } from "@/query/queryKeys";
 
-export const useCompletedSessionHistoryQuery = () => {
+export const useArchivedTrainingBlocksQuery = () => {
   const { repositoryContext } = useAppDatabase();
   const repository = new TrainingBlockRepository(repositoryContext);
 
   return useQuery({
-    queryKey: queryKeys.workouts.history(),
-    queryFn: () => repository.getCompletedSessionHistoryAsync(),
+    queryKey: queryKeys.trainingBlocks.archivedPlans(),
+    queryFn: () => repository.getArchivedTrainingBlockSummariesAsync(),
   });
 };

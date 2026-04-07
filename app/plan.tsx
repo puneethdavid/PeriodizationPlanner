@@ -2,14 +2,16 @@ import { useRouter } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, EmptyState, ListRow, LoadingState, ScreenContainer } from "@/components/ui";
+import { useArchivedTrainingBlocksQuery } from "@/features/training-blocks/queries/useArchivedTrainingBlocksQuery";
 import { useBlockOverviewQuery } from "@/features/training-blocks/queries/useBlockOverviewQuery";
 import { appTheme } from "@/theme/appTheme";
 
 const BlockOverviewScreen = () => {
   const router = useRouter();
   const blockOverviewQuery = useBlockOverviewQuery();
+  const archivedBlocksQuery = useArchivedTrainingBlocksQuery();
 
-  if (blockOverviewQuery.isLoading) {
+  if (blockOverviewQuery.isLoading || archivedBlocksQuery.isLoading) {
     return (
       <ScreenContainer
         eyebrow="Full Plan"
@@ -27,6 +29,7 @@ const BlockOverviewScreen = () => {
   }
 
   const overview = blockOverviewQuery.data;
+  const archivedBlocks = archivedBlocksQuery.data ?? [];
 
   return (
     <ScreenContainer
@@ -118,6 +121,28 @@ const BlockOverviewScreen = () => {
               ))}
             </Card>
           ))}
+
+          <Card>
+            <View style={styles.weekHeader}>
+              <Text style={styles.weekTitle}>Archived blocks</Text>
+              <Text style={styles.weekMeta}>{archivedBlocks.length}</Text>
+            </View>
+            {archivedBlocks.length === 0 ? (
+              <Text style={styles.blockMeta}>
+                Regeneration has not archived any prior blocks yet. Once setup changes replace the
+                current block, the previous block will stay reviewable here.
+              </Text>
+            ) : (
+              archivedBlocks.map((archivedBlock) => (
+                <ListRow
+                  key={archivedBlock.blockId}
+                  title={archivedBlock.blockName}
+                  description={`${archivedBlock.startDate} to ${archivedBlock.endDate}. ${archivedBlock.completedSessions}/${archivedBlock.totalSessions} sessions completed.${archivedBlock.latestRevisionSummary === null ? "" : ` ${archivedBlock.latestRevisionSummary}`}`}
+                  trailing={`${archivedBlock.benchmarkSessionCount} benchmark / ${archivedBlock.finalTestSessionCount} final test`}
+                />
+              ))
+            )}
+          </Card>
         </>
       )}
     </ScreenContainer>

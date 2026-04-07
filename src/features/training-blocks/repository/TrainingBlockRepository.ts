@@ -9,21 +9,25 @@ import {
   blockRevisionSchema,
   blockSchedulingPreferencesSchema,
   generatedTrainingPlanSchema,
+  loggedSetResultSchema,
   plannedExerciseSchema,
   plannedSessionSchema,
   plannedSetSchema,
   trainingBlockSchema,
+  workoutResultSchema,
   type Benchmark,
   type BenchmarkInput,
   type BlockConfiguration,
   type BlockSchedulingPreferences,
   type BlockRevision,
   type GeneratedTrainingPlan,
+  type LoggedSetResult,
   type LiftGoal,
   type PlannedExercise,
   type PlannedSession,
   type PlannedSet,
   type TrainingBlock,
+  type WorkoutResult,
 } from "@/features/training-blocks/schema/trainingBlockSchemas";
 import {
   generateFixedTrainingBlock,
@@ -145,6 +149,56 @@ type WorkoutHistoryRow = {
   session_type: PlannedSession["sessionType"];
   exercise_count: number;
   planned_set_count: number;
+  block_name: string;
+  block_status: TrainingBlock["status"];
+};
+
+type WorkoutResultRow = {
+  id: string;
+  session_id: string;
+  completed_at: string;
+  completion_status: WorkoutResult["completionStatus"];
+  notes: string | null;
+  perceived_difficulty: number | null;
+};
+
+type LoggedSetResultRow = {
+  id: string;
+  workout_result_id: string;
+  planned_set_id: string | null;
+  set_index: number;
+  actual_reps: number | null;
+  actual_load: number | null;
+  actual_rpe: number | null;
+  is_completed: number;
+};
+
+type SessionCountRow = {
+  total_sessions: number;
+  completed_sessions: number;
+  benchmark_sessions: number;
+  final_test_sessions: number;
+};
+
+export type ArchivedTrainingBlockSummary = {
+  blockId: string;
+  blockName: string;
+  startDate: string;
+  endDate: string;
+  archivedAt: string;
+  durationWeeks: number | null;
+  completedSessions: number;
+  totalSessions: number;
+  benchmarkSessionCount: number;
+  finalTestSessionCount: number;
+  latestRevisionSummary: string | null;
+};
+
+export type WorkoutSessionReview = {
+  block: Pick<TrainingBlock, "id" | "name" | "status" | "updatedAt">;
+  session: PlannedSession;
+  workoutResult: WorkoutResult | null;
+  loggedSetResults: readonly LoggedSetResult[];
 };
 
 const makeId = (prefix: string): string => {
@@ -289,11 +343,91 @@ const mapPlannedSessionRow = (
     "training-blocks.planned-session-row",
   );
 
+const mapWorkoutResultRow = (row: WorkoutResultRow): WorkoutResult =>
+  parseWithSchema(
+    workoutResultSchema,
+    {
+      id: row.id,
+      sessionId: row.session_id,
+      completedAt: row.completed_at,
+      completionStatus: row.completion_status,
+      notes: row.notes,
+      perceivedDifficulty: row.perceived_difficulty,
+    },
+    "training-blocks.workout-result-row",
+  );
+
+const mapLoggedSetResultRow = (row: LoggedSetResultRow): LoggedSetResult =>
+  parseWithSchema(
+    loggedSetResultSchema,
+    {
+      id: row.id,
+      workoutResultId: row.workout_result_id,
+      plannedSetId: row.planned_set_id,
+      setIndex: row.set_index,
+      actualReps: row.actual_reps,
+      actualLoad: row.actual_load,
+      actualRpe: row.actual_rpe,
+      isCompleted: row.is_completed === 1,
+    },
+    "training-blocks.logged-set-result-row",
+  );
+
 const makeSqlPlaceholders = (count: number): string => Array.from({ length: count }, () => "?").join(", ");
 
 export class TrainingBlockRepository extends BaseRepository {
   constructor(context: RepositoryContext) {
     super(context);
+  }
+
+  private async getPlannedExercisesForSessionAsync(
+    database: SQLiteDatabase,
+    sessionId: string,
+  ): Promise<readonly PlannedExercise[]> {
+    const exerciseRows = await database.getAllAsync<PlannedExerciseRow>(
+      `
+        SELECT
+          id,
+          session_id,
+          lift_slug,
+          exercise_slug,
+          exercise_name,
+          exercise_order,
+          prescription_kind
+        FROM planned_exercises
+        WHERE session_id = ?
+        ORDER BY exercise_order ASC
+      `,
+      sessionId,
+    );
+
+    return Promise.all(
+      exerciseRows.map(async (exerciseRow) => {
+        const plannedSetRows = await database.getAllAsync<PlannedSetRow>(
+          `
+            SELECT
+              id,
+              planned_exercise_id,
+              set_index,
+              target_reps,
+              target_load,
+              target_rpe,
+              rest_seconds,
+              tempo,
+              is_amrap
+            FROM planned_sets
+            WHERE planned_exercise_id = ?
+            ORDER BY set_index ASC
+          `,
+          exerciseRow.id,
+        );
+
+        return mapPlannedExerciseRow(
+          exerciseRow,
+          plannedSetRows.map((plannedSetRow) => mapPlannedSetRow(plannedSetRow)),
+        );
+      }),
+    );
   }
 
   async resetTrainingBlockDataAsync(): Promise<void> {
@@ -1089,52 +1223,126 @@ export class TrainingBlockRepository extends BaseRepository {
       return null;
     }
 
-    const exerciseRows = await this.database.getAllAsync<PlannedExerciseRow>(
+    const plannedExercises = await this.getPlannedExercisesForSessionAsync(this.database, sessionId);
+
+    return mapPlannedSessionRow(sessionRow, plannedExercises);
+  }
+
+  async getWorkoutSessionReviewAsync(sessionId: string): Promise<WorkoutSessionReview | null> {
+    const sessionRow = await this.database.getFirstAsync<PlannedSessionRow>(
       `
         SELECT
           id,
-          session_id,
-          lift_slug,
-          exercise_slug,
-          exercise_name,
-          exercise_order,
-          prescription_kind
-        FROM planned_exercises
-        WHERE session_id = ?
-        ORDER BY exercise_order ASC
+          block_id,
+          block_revision_id,
+          scheduled_date,
+          scheduled_weekday,
+          session_index,
+          week_index,
+          session_type,
+          title,
+          status
+        FROM planned_sessions
+        WHERE id = ?
+        LIMIT 1
       `,
       sessionId,
     );
 
-    const plannedExercises = await Promise.all(
-      exerciseRows.map(async (exerciseRow) => {
-        const plannedSetRows = await this.database.getAllAsync<PlannedSetRow>(
-          `
-            SELECT
-              id,
-              planned_exercise_id,
-              set_index,
-              target_reps,
-              target_load,
-              target_rpe,
-              rest_seconds,
-              tempo,
-              is_amrap
-            FROM planned_sets
-            WHERE planned_exercise_id = ?
-            ORDER BY set_index ASC
-          `,
-          exerciseRow.id,
-        );
+    if (sessionRow === null) {
+      return null;
+    }
 
-        return mapPlannedExerciseRow(
-          exerciseRow,
-          plannedSetRows.map((plannedSetRow) => mapPlannedSetRow(plannedSetRow)),
-        );
-      }),
-    );
+    const [blockRow, workoutResultRow, plannedExercises] = await Promise.all([
+      this.database.getFirstAsync<TrainingBlockRow>(
+        `
+          SELECT
+            id,
+            name,
+            status,
+            goal_slug,
+            start_date,
+            end_date,
+            benchmark_snapshot_id,
+            generation_version,
+            notes,
+            training_days_per_week,
+            selected_training_weekdays,
+            duration_weeks,
+            primary_goal,
+            secondary_goal,
+            benchmark_lift_slugs,
+            primary_lifts_per_session,
+            secondary_lifts_per_session,
+            primary_lift_pool,
+            secondary_lift_pool,
+            created_at,
+            updated_at
+          FROM training_blocks
+          WHERE id = ?
+          LIMIT 1
+        `,
+        sessionRow.block_id,
+      ),
+      this.database.getFirstAsync<WorkoutResultRow>(
+        `
+          SELECT
+            id,
+            session_id,
+            completed_at,
+            completion_status,
+            notes,
+            perceived_difficulty
+          FROM workout_results
+          WHERE session_id = ?
+          LIMIT 1
+        `,
+        sessionId,
+      ),
+      this.getPlannedExercisesForSessionAsync(this.database, sessionId),
+    ]);
 
-    return mapPlannedSessionRow(sessionRow, plannedExercises);
+    if (blockRow === null) {
+      throw new Error(
+        `[training-blocks] Planned session ${sessionId} is missing its owning block record.`,
+      );
+    }
+
+    const workoutResult = workoutResultRow === null ? null : mapWorkoutResultRow(workoutResultRow);
+    const loggedSetResults =
+      workoutResult === null
+        ? []
+        : (
+            await this.database.getAllAsync<LoggedSetResultRow>(
+              `
+                SELECT
+                  id,
+                  workout_result_id,
+                  planned_set_id,
+                  set_index,
+                  actual_reps,
+                  actual_load,
+                  actual_rpe,
+                  is_completed
+                FROM logged_set_results
+                WHERE workout_result_id = ?
+                ORDER BY set_index ASC
+              `,
+              workoutResult.id,
+            )
+          ).map((row) => mapLoggedSetResultRow(row));
+
+    return {
+      block: {
+        id: blockRow.id,
+        name: blockRow.name,
+        status: blockRow.status,
+        updatedAt: blockRow.updated_at,
+      },
+      session: mapPlannedSessionRow(sessionRow, plannedExercises),
+      workoutResult,
+      loggedSetResults,
+    };
   }
 
   async completeSessionAsPlannedAsync(sessionId: string): Promise<void> {
@@ -1297,6 +1505,8 @@ export class TrainingBlockRepository extends BaseRepository {
       sessionType: PlannedSession["sessionType"];
       exerciseCount: number;
       plannedSetCount: number;
+      blockName: string;
+      blockStatus: TrainingBlock["status"];
     }[]
   > {
     const rows = await this.database.getAllAsync<WorkoutHistoryRow>(
@@ -1309,10 +1519,14 @@ export class TrainingBlockRepository extends BaseRepository {
           workout_results.completed_at AS completed_at,
           planned_sessions.session_type AS session_type,
           COUNT(DISTINCT planned_exercises.id) AS exercise_count,
-          COUNT(DISTINCT planned_sets.id) AS planned_set_count
+          COUNT(DISTINCT planned_sets.id) AS planned_set_count,
+          training_blocks.name AS block_name,
+          training_blocks.status AS block_status
         FROM workout_results
         INNER JOIN planned_sessions
           ON planned_sessions.id = workout_results.session_id
+        INNER JOIN training_blocks
+          ON training_blocks.id = planned_sessions.block_id
         LEFT JOIN planned_exercises
           ON planned_exercises.session_id = planned_sessions.id
         LEFT JOIN planned_sets
@@ -1323,7 +1537,9 @@ export class TrainingBlockRepository extends BaseRepository {
           planned_sessions.scheduled_date,
           workout_results.completion_status,
           workout_results.completed_at,
-          planned_sessions.session_type
+          planned_sessions.session_type,
+          training_blocks.name,
+          training_blocks.status
         ORDER BY workout_results.completed_at DESC
       `,
     );
@@ -1337,6 +1553,91 @@ export class TrainingBlockRepository extends BaseRepository {
       sessionType: row.session_type,
       exerciseCount: row.exercise_count,
       plannedSetCount: row.planned_set_count,
+      blockName: row.block_name,
+      blockStatus: row.block_status,
     }));
+  }
+
+  async getArchivedTrainingBlockSummariesAsync(): Promise<
+    readonly ArchivedTrainingBlockSummary[]
+  > {
+    const archivedBlockRows = await this.database.getAllAsync<TrainingBlockRow>(
+      `
+        SELECT
+          id,
+          name,
+          status,
+          goal_slug,
+          start_date,
+          end_date,
+          benchmark_snapshot_id,
+          generation_version,
+          notes,
+          training_days_per_week,
+          selected_training_weekdays,
+          duration_weeks,
+          primary_goal,
+          secondary_goal,
+          benchmark_lift_slugs,
+          primary_lifts_per_session,
+          secondary_lifts_per_session,
+          primary_lift_pool,
+          secondary_lift_pool,
+          created_at,
+          updated_at
+        FROM training_blocks
+        WHERE status = 'archived'
+        ORDER BY updated_at DESC
+      `,
+    );
+
+    return Promise.all(
+      archivedBlockRows.map(async (blockRow) => {
+        const [latestRevision, sessionCounts] = await Promise.all([
+          this.database.getFirstAsync<BlockRevisionRow>(
+            `
+              SELECT
+                id,
+                block_id,
+                revision_number,
+                reason,
+                summary,
+                created_at
+              FROM block_revisions
+              WHERE block_id = ?
+              ORDER BY revision_number DESC
+              LIMIT 1
+            `,
+            blockRow.id,
+          ),
+          this.database.getFirstAsync<SessionCountRow>(
+            `
+              SELECT
+                COUNT(*) AS total_sessions,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_sessions,
+                SUM(CASE WHEN session_type = 'benchmark' THEN 1 ELSE 0 END) AS benchmark_sessions,
+                SUM(CASE WHEN session_type = 'final-test' THEN 1 ELSE 0 END) AS final_test_sessions
+              FROM planned_sessions
+              WHERE block_id = ?
+            `,
+            blockRow.id,
+          ),
+        ]);
+
+        return {
+          blockId: blockRow.id,
+          blockName: blockRow.name,
+          startDate: blockRow.start_date,
+          endDate: blockRow.end_date,
+          archivedAt: blockRow.updated_at,
+          durationWeeks: blockRow.duration_weeks,
+          completedSessions: sessionCounts?.completed_sessions ?? 0,
+          totalSessions: sessionCounts?.total_sessions ?? 0,
+          benchmarkSessionCount: sessionCounts?.benchmark_sessions ?? 0,
+          finalTestSessionCount: sessionCounts?.final_test_sessions ?? 0,
+          latestRevisionSummary: latestRevision?.summary ?? null,
+        };
+      }),
+    );
   }
 }

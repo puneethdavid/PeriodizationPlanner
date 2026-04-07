@@ -27,6 +27,12 @@ export const useQuickCompleteSessionMutation = (sessionId: string | null) => {
           queryKey: queryKeys.workouts.detail(sessionId),
         }),
         queryClient.invalidateQueries({
+          queryKey: queryKeys.workouts.review(sessionId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.workouts.history(),
+        }),
+        queryClient.invalidateQueries({
           queryKey: queryKeys.trainingBlocks.overview(),
         }),
         queryClient.invalidateQueries({
@@ -34,6 +40,9 @@ export const useQuickCompleteSessionMutation = (sessionId: string | null) => {
         }),
         queryClient.invalidateQueries({
           queryKey: queryKeys.trainingBlocks.activePlan(),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.trainingBlocks.archivedPlans(),
         }),
       ]);
     },

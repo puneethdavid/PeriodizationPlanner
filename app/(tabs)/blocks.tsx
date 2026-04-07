@@ -12,7 +12,7 @@ const BlocksScreen = () => {
     <ScreenContainer
       eyebrow="Planning"
       title="Blocks"
-      description="Capture starting benchmarks first, then generate and review the local training block from those saved values."
+      description="Capture saved benchmark inputs first, then review the setup and generate the local training block from those values."
     >
       <BenchmarkEntryCard />
       <BlockScheduleSetupCard />
@@ -20,8 +20,8 @@ const BlocksScreen = () => {
       <BlockProgressCard />
       <Card>
         <Text style={{ color: appTheme.colors.textSecondary, lineHeight: 22 }}>
-          The active block is created locally from the saved benchmark set and then handed off to
-          the Today route for execution.
+          Saved benchmark inputs seed generation. Benchmark and final-test sessions inside the plan
+          are later scheduled workouts, not the same thing as the setup values saved here.
         </Text>
       </Card>
     </ScreenContainer>

@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 
 import { Button, Card, EmptyState, ListRow, LoadingState, ScreenContainer } from "@/components/ui";
 import { useCompletedSessionHistoryQuery } from "@/features/training-blocks/queries/useCompletedSessionHistoryQuery";
+import { getSessionKindLabel } from "@/features/training-blocks/services/sessionPresentation";
 
 const HistoryScreen = () => {
   const router = useRouter();
@@ -54,8 +55,16 @@ const HistoryScreen = () => {
             <ListRow
               key={session.sessionId}
               title={session.title}
-              description={`${session.exerciseCount} exercises, ${session.plannedSetCount} sets, completed ${session.completedAt.slice(0, 10)}`}
-              trailing={session.completionStatus}
+              description={`${getSessionKindLabel({ sessionType: session.sessionType })} result in ${session.blockName}${session.blockStatus === "archived" ? " (archived block)" : ""}. ${session.exerciseCount} exercises, ${session.plannedSetCount} sets, completed ${session.completedAt.slice(0, 10)}.`}
+              onPress={() => {
+                router.push({
+                  pathname: "/workouts/[sessionId]",
+                  params: {
+                    sessionId: session.sessionId,
+                  },
+                });
+              }}
+              trailing={getSessionKindLabel({ sessionType: session.sessionType })}
             />
           ))}
         </Card>
