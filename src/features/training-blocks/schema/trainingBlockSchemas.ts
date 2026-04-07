@@ -116,6 +116,19 @@ export const uniqueLiftSlugListSchema = z
     message: "Lift selections must not contain duplicates.",
   });
 
+export const targetLiftGoalSchema = z.object({
+  liftSlug: liftSlugSchema,
+  targetWeight: z.number().positive(),
+  targetTestType: lpCheckpointTypeSchema,
+});
+
+export const targetLiftGoalsSchema = z
+  .array(targetLiftGoalSchema)
+  .max(4)
+  .refine((goals) => new Set(goals.map((goal) => goal.liftSlug)).size === goals.length, {
+    message: "Target lift goals must not contain duplicate lifts.",
+  });
+
 export const blockConfigurationSchema = z.object({
   schedulingPreferences: blockSchedulingPreferencesSchema,
   durationWeeks: blockDurationWeeksSchema,
@@ -126,6 +139,7 @@ export const blockConfigurationSchema = z.object({
   secondaryLiftsPerSession: secondaryLiftCountSchema,
   primaryLiftPool: uniqueLiftSlugListSchema,
   secondaryLiftPool: uniqueLiftSlugListSchema,
+  targetLiftGoals: targetLiftGoalsSchema.default([]),
 });
 
 export const validatedBlockConfigurationSchema = blockConfigurationSchema.superRefine(
@@ -167,6 +181,18 @@ export const validatedBlockConfigurationSchema = blockConfigurationSchema.superR
           "Combined primary and secondary session counts need enough unique lifts across both pools.",
       });
     }
+
+    const benchmarkLiftSet = new Set(value.benchmarkLiftSlugs);
+
+    value.targetLiftGoals.forEach((goal, index) => {
+      if (!benchmarkLiftSet.has(goal.liftSlug)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["targetLiftGoals", index, "liftSlug"],
+          message: "Target goals must use one of the selected benchmark lifts.",
+        });
+      }
+    });
   },
 );
 
@@ -318,6 +344,7 @@ export type LiftGoal = z.infer<typeof liftGoalSchema>;
 export type LpProgramLevel = z.infer<typeof lpProgramLevelSchema>;
 export type LpProgramPhase = z.infer<typeof lpProgramPhaseSchema>;
 export type LpCheckpointType = z.infer<typeof lpCheckpointTypeSchema>;
+export type TargetLiftGoal = z.infer<typeof targetLiftGoalSchema>;
 export type BlockConfiguration = z.infer<typeof blockConfigurationSchema>;
 export type ValidatedBlockConfiguration = z.infer<typeof validatedBlockConfigurationSchema>;
 export type BenchmarkSnapshotItem = z.infer<typeof benchmarkSnapshotItemSchema>;

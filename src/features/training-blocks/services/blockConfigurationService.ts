@@ -4,10 +4,13 @@ import type {
   BlockConfiguration,
   BlockDurationWeeks,
   LiftGoal,
+  TargetLiftGoal,
   ValidatedBlockConfiguration,
 } from "@/features/training-blocks/schema/trainingBlockSchemas";
 import {
   blockConfigurationSchema,
+  lpCheckpointTypeSchema,
+  targetLiftGoalsSchema,
   validatedBlockConfigurationSchema,
 } from "@/features/training-blocks/schema/trainingBlockSchemas";
 import {
@@ -26,6 +29,7 @@ export const liftGoalOptions = [
 ] as const satisfies readonly LiftGoal[];
 export const sessionPrimaryLiftCountOptions = [1, 2, 3] as const;
 export const sessionSecondaryLiftCountOptions = [0, 1, 2, 3] as const;
+export const targetLiftGoalTestTypeOptions = lpCheckpointTypeSchema.options;
 
 export const liftGoalLabels: Record<LiftGoal, string> = {
   strength: "Strength",
@@ -44,6 +48,7 @@ export const createDefaultBlockConfiguration = (): BlockConfiguration => ({
   secondaryLiftsPerSession: 1,
   primaryLiftPool: ["back-squat", "bench-press", "deadlift", "overhead-press"],
   secondaryLiftPool: ["back-squat", "bench-press", "deadlift", "overhead-press"],
+  targetLiftGoals: [],
 });
 
 export const parseBlockConfiguration = (input: BlockConfiguration): BlockConfiguration => {
@@ -61,6 +66,8 @@ export const validateBlockConfiguration = (
 };
 
 export const serializeLiftSlugList = (liftSlugs: readonly string[]): string => liftSlugs.join(",");
+export const serializeTargetLiftGoals = (goals: readonly TargetLiftGoal[]): string =>
+  JSON.stringify(goals);
 
 export const parseSerializedLiftSlugList = (value: string): readonly string[] => {
   if (value.trim().length === 0) {
@@ -71,6 +78,20 @@ export const parseSerializedLiftSlugList = (value: string): readonly string[] =>
     .split(",")
     .map((liftSlug) => liftSlug.trim())
     .filter((liftSlug) => liftSlug.length > 0);
+};
+
+export const parseSerializedTargetLiftGoals = (
+  value: string | null,
+): readonly TargetLiftGoal[] => {
+  if (value === null || value.trim().length === 0) {
+    return [];
+  }
+
+  return parseWithSchema(
+    targetLiftGoalsSchema,
+    JSON.parse(value) as unknown,
+    "training-blocks.target-lift-goals-snapshot",
+  );
 };
 
 export const summarizeBlockConfiguration = (configuration: BlockConfiguration): string => {
@@ -91,6 +112,7 @@ export const serializeBlockConfigurationSnapshot = (configuration: BlockConfigur
   secondaryLiftsPerSession: number;
   primaryLiftPool: string;
   secondaryLiftPool: string;
+  targetLiftGoals: string;
   trainingDaysPerWeek: number;
   selectedTrainingWeekdays: string;
 } => ({
@@ -102,6 +124,7 @@ export const serializeBlockConfigurationSnapshot = (configuration: BlockConfigur
   secondaryLiftsPerSession: configuration.secondaryLiftsPerSession,
   primaryLiftPool: serializeLiftSlugList(configuration.primaryLiftPool),
   secondaryLiftPool: serializeLiftSlugList(configuration.secondaryLiftPool),
+  targetLiftGoals: serializeTargetLiftGoals(configuration.targetLiftGoals),
   trainingDaysPerWeek: configuration.schedulingPreferences.trainingDaysPerWeek,
   selectedTrainingWeekdays: serializeTrainingWeekdays(
     configuration.schedulingPreferences.selectedTrainingWeekdays,
@@ -117,6 +140,7 @@ export const parseBlockConfigurationSnapshot = (input: {
   secondaryLiftsPerSession: number | null;
   primaryLiftPool: string | null;
   secondaryLiftPool: string | null;
+  targetLiftGoals: string | null;
   trainingDaysPerWeek: number | null;
   selectedTrainingWeekdays: string | null;
 }): BlockConfiguration | null => {
@@ -150,6 +174,7 @@ export const parseBlockConfigurationSnapshot = (input: {
       secondaryLiftsPerSession: input.secondaryLiftsPerSession,
       primaryLiftPool: parseSerializedLiftSlugList(input.primaryLiftPool),
       secondaryLiftPool: parseSerializedLiftSlugList(input.secondaryLiftPool),
+      targetLiftGoals: parseSerializedTargetLiftGoals(input.targetLiftGoals),
     },
     "training-blocks.block-configuration-snapshot",
   );

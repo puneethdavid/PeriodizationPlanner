@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Button, Card, LoadingState } from "@/components/ui";
+import { Button, Card, LoadingState, NumberField } from "@/components/ui";
 import { benchmarkFieldMetadata } from "@/features/training-blocks/services/benchmarkDraftService";
+import { useBenchmarksQuery } from "@/features/training-blocks/queries/useBenchmarksQuery";
 import { useBlockConfigurationQuery } from "@/features/training-blocks/queries/useBlockConfigurationQuery";
 import { useSaveBlockConfigurationMutation } from "@/features/training-blocks/queries/useSaveBlockConfigurationMutation";
 import type { BenchmarkInput, TrainingWeekday } from "@/features/training-blocks/schema/trainingBlockSchemas";
@@ -10,6 +11,7 @@ import {
   createBlockConfigurationDraftFromSaved,
   createEmptyBlockConfigurationDraft,
   toggleLiftSlugSelection,
+  toggleTargetLiftGoalSelection,
   toggleTrainingWeekday,
   validateBlockConfigurationDraft,
 } from "@/features/training-blocks/services/blockConfigurationDraftService";
@@ -19,6 +21,7 @@ import {
   liftGoalOptions,
   sessionPrimaryLiftCountOptions,
   sessionSecondaryLiftCountOptions,
+  targetLiftGoalTestTypeOptions,
 } from "@/features/training-blocks/services/blockConfigurationService";
 import { trainingWeekdayLabels, trainingWeekdayOrder } from "@/features/training-blocks/services/blockSchedulingService";
 import { appTheme } from "@/theme/appTheme";
@@ -27,6 +30,7 @@ const frequencyOptions = [2, 3, 4, 5] as const;
 const liftOptions = Object.keys(benchmarkFieldMetadata) as BenchmarkInput["liftSlug"][];
 
 export const BlockScheduleSetupCard = () => {
+  const benchmarksQuery = useBenchmarksQuery();
   const blockConfigurationQuery = useBlockConfigurationQuery();
   const saveBlockConfigurationMutation = useSaveBlockConfigurationMutation();
   const [draft, setDraft] = useState(createEmptyBlockConfigurationDraft);
@@ -74,7 +78,7 @@ export const BlockScheduleSetupCard = () => {
   };
 
   const handleSave = async () => {
-    const validationResult = validateBlockConfigurationDraft(draft);
+    const validationResult = validateBlockConfigurationDraft(draft, benchmarksQuery.data ?? []);
 
     if (validationResult.data === null) {
       const nextErrorMessage =
@@ -461,6 +465,125 @@ export const BlockScheduleSetupCard = () => {
         </View>
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Target lift goals</Text>
+        <Text style={styles.sectionDescription}>
+          Select the priority lifts you want the LP program to drive toward and enter the target
+          rep-max outcome for each one.
+        </Text>
+        <View style={styles.optionRow}>
+          {draft.benchmarkLiftSlugs.map((liftSlug) => {
+            const isSelected = draft.targetLiftGoals.some((goal) => goal.liftSlug === liftSlug);
+
+            return (
+              <Pressable
+                key={`target-goal-${liftSlug}`}
+                accessibilityRole="button"
+                onPress={() => {
+                  setDraft((current) => ({
+                    ...current,
+                    targetLiftGoals: [
+                      ...toggleTargetLiftGoalSelection(current.targetLiftGoals, liftSlug),
+                    ],
+                  }));
+                  setErrorMessage(null);
+                  setFeedbackMessage(null);
+                }}
+                style={({ pressed }) => [
+                  styles.liftChip,
+                  isSelected ? styles.choiceChipActive : null,
+                  pressed ? styles.choiceChipPressed : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.choiceChipLabel,
+                    isSelected ? styles.choiceChipLabelActive : null,
+                  ]}
+                >
+                  {benchmarkFieldMetadata[liftSlug].label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {draft.targetLiftGoals.map((goal) => {
+          const savedBenchmark =
+            benchmarksQuery.data?.find((benchmark) => benchmark.liftSlug === goal.liftSlug) ?? null;
+
+          return (
+            <Card key={`goal-config-${goal.liftSlug}`}>
+              <View style={styles.goalHeader}>
+                <Text style={styles.sectionLabel}>{benchmarkFieldMetadata[goal.liftSlug].label}</Text>
+                <Text style={styles.helperText}>
+                  {savedBenchmark === null
+                    ? "Save a benchmark first so the target can be validated."
+                    : `Current benchmark: ${savedBenchmark.value} ${savedBenchmark.unit} ${savedBenchmark.benchmarkType}.`}
+                </Text>
+              </View>
+              <NumberField
+                helperText="Enter the target weight you want the program to reach for this lift."
+                label="Target weight"
+                onChangeText={(value) => {
+                  setDraft((current) => ({
+                    ...current,
+                    targetLiftGoals: current.targetLiftGoals.map((currentGoal) =>
+                      currentGoal.liftSlug === goal.liftSlug
+                        ? {
+                            ...currentGoal,
+                            targetWeight: value.trim().length === 0 ? 0 : Number(value),
+                          }
+                        : currentGoal,
+                    ),
+                  }));
+                  setErrorMessage(null);
+                  setFeedbackMessage(null);
+                }}
+                placeholder="0"
+                value={goal.targetWeight <= 0 ? "" : String(goal.targetWeight)}
+              />
+              <View style={styles.optionRow}>
+                {targetLiftGoalTestTypeOptions.map((testType) => (
+                  <Pressable
+                    key={`${goal.liftSlug}-${testType}`}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setDraft((current) => ({
+                        ...current,
+                        targetLiftGoals: current.targetLiftGoals.map((currentGoal) =>
+                          currentGoal.liftSlug === goal.liftSlug
+                            ? {
+                                ...currentGoal,
+                                targetTestType: testType,
+                              }
+                            : currentGoal,
+                        ),
+                      }));
+                      setErrorMessage(null);
+                      setFeedbackMessage(null);
+                    }}
+                    style={({ pressed }) => [
+                      styles.choiceChip,
+                      goal.targetTestType === testType ? styles.choiceChipActive : null,
+                      pressed ? styles.choiceChipPressed : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.choiceChipLabel,
+                        goal.targetTestType === testType ? styles.choiceChipLabelActive : null,
+                      ]}
+                    >
+                      {testType}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </Card>
+          );
+        })}
+      </View>
+
       {errorMessage !== null ? (
         <Text style={[styles.helperText, styles.errorText]}>{errorMessage}</Text>
       ) : null}
@@ -504,6 +627,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: appTheme.colors.textPrimary,
+  },
+  sectionDescription: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: appTheme.colors.textSecondary,
   },
   optionRow: {
     flexDirection: "row",
@@ -572,6 +700,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: appTheme.colors.textSecondary,
     lineHeight: 20,
+  },
+  goalHeader: {
+    gap: appTheme.spacing.xs,
   },
   errorText: {
     color: appTheme.colors.danger,

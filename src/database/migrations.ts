@@ -287,6 +287,20 @@ export const migrations: readonly Migration[] = [
       `,
     ],
   },
+  {
+    version: 5,
+    name: "target-lift-goals",
+    statements: [
+      `
+        ALTER TABLE block_setup_preferences
+        ADD COLUMN target_lift_goals TEXT;
+      `,
+      `
+        ALTER TABLE training_blocks
+        ADD COLUMN target_lift_goals TEXT;
+      `,
+    ],
+  },
 ] as const;
 
 export const latestSchemaVersion = migrations.at(-1)?.version ?? 0;

@@ -85,6 +85,7 @@ type TrainingBlockRow = {
   secondary_lifts_per_session: number | null;
   primary_lift_pool: string | null;
   secondary_lift_pool: string | null;
+  target_lift_goals: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -123,6 +124,7 @@ type BlockSetupPreferencesRow = {
   secondary_lifts_per_session: number | null;
   primary_lift_pool: string | null;
   secondary_lift_pool: string | null;
+  target_lift_goals: string | null;
   updated_at: string;
 };
 
@@ -283,6 +285,7 @@ const mapTrainingBlockRow = (row: TrainingBlockRow): TrainingBlock =>
         secondaryLiftsPerSession: row.secondary_lifts_per_session,
         primaryLiftPool: row.primary_lift_pool,
         secondaryLiftPool: row.secondary_lift_pool,
+        targetLiftGoals: row.target_lift_goals,
         trainingDaysPerWeek: row.training_days_per_week,
         selectedTrainingWeekdays: row.selected_training_weekdays,
       }),
@@ -509,6 +512,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           secondary_lifts_per_session,
           primary_lift_pool,
           secondary_lift_pool,
+          target_lift_goals,
           updated_at
         FROM block_setup_preferences
         WHERE id = 'current'
@@ -529,6 +533,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       secondaryLiftsPerSession: row.secondary_lifts_per_session,
       primaryLiftPool: row.primary_lift_pool,
       secondaryLiftPool: row.secondary_lift_pool,
+      targetLiftGoals: row.target_lift_goals,
       trainingDaysPerWeek: row.training_days_per_week,
       selectedTrainingWeekdays: row.selected_training_weekdays,
     });
@@ -588,8 +593,9 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           secondary_lifts_per_session,
           primary_lift_pool,
           secondary_lift_pool,
+          target_lift_goals,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           training_days_per_week = excluded.training_days_per_week,
           selected_training_weekdays = excluded.selected_training_weekdays,
@@ -601,6 +607,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           secondary_lifts_per_session = excluded.secondary_lifts_per_session,
           primary_lift_pool = excluded.primary_lift_pool,
           secondary_lift_pool = excluded.secondary_lift_pool,
+          target_lift_goals = excluded.target_lift_goals,
           updated_at = excluded.updated_at
       `,
       "current",
@@ -614,6 +621,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       serializedConfiguration.secondaryLiftsPerSession,
       serializedConfiguration.primaryLiftPool,
       serializedConfiguration.secondaryLiftPool,
+      serializedConfiguration.targetLiftGoals,
       updatedAt,
     );
 
@@ -700,9 +708,10 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           secondary_lifts_per_session,
           primary_lift_pool,
           secondary_lift_pool,
+          target_lift_goals,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       ...(function () {
         const serializedConfiguration =
@@ -739,6 +748,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       serializedConfiguration?.secondaryLiftsPerSession ?? null,
       serializedConfiguration?.primaryLiftPool ?? null,
       serializedConfiguration?.secondaryLiftPool ?? null,
+      serializedConfiguration?.targetLiftGoals ?? null,
       plan.block.createdAt,
       plan.block.updatedAt,
         ];
@@ -1112,6 +1122,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           secondary_lifts_per_session,
           primary_lift_pool,
           secondary_lift_pool,
+          target_lift_goals,
           created_at,
           updated_at
         FROM training_blocks
@@ -1375,6 +1386,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
             secondary_lifts_per_session,
             primary_lift_pool,
             secondary_lift_pool,
+            target_lift_goals,
             created_at,
             updated_at
           FROM training_blocks
@@ -1868,6 +1880,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           secondary_lifts_per_session,
           primary_lift_pool,
           secondary_lift_pool,
+          target_lift_goals,
           created_at,
           updated_at
         FROM training_blocks
