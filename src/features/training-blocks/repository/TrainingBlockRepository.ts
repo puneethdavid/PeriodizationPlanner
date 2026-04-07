@@ -46,6 +46,7 @@ import {
   serializeBlockConfigurationSnapshot,
   validateBlockConfiguration,
 } from "@/features/training-blocks/services/blockConfigurationService";
+import { buildAdaptationExplanationArtifacts } from "@/features/training-blocks/services/adaptationExplanationBuilder";
 import {
   parseSerializedTrainingWeekdays,
   serializeTrainingWeekdays,
@@ -1459,6 +1460,12 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
         "training-blocks.persist-adaptation-session",
       ),
     );
+    const { adaptationEvents, explanationRecords } = buildAdaptationExplanationArtifacts({
+      proposedRevision,
+      persistedRevision,
+      createdAt,
+      makeId,
+    });
 
     await this.database.withExclusiveTransactionAsync(async (transaction) => {
       await transaction.runAsync(
@@ -1543,11 +1550,57 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           }
         }
       }
+
+      for (const adaptationEvent of adaptationEvents) {
+        await transaction.runAsync(
+          `
+            INSERT INTO adaptation_events (
+              id,
+              block_id,
+              block_revision_id,
+              triggered_at,
+              event_type,
+              reason_code,
+              summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+          adaptationEvent.id,
+          adaptationEvent.blockId,
+          adaptationEvent.blockRevisionId,
+          adaptationEvent.triggeredAt,
+          adaptationEvent.eventType,
+          adaptationEvent.reasonCode,
+          adaptationEvent.summary,
+        );
+      }
+
+      for (const explanationRecord of explanationRecords) {
+        await transaction.runAsync(
+          `
+            INSERT INTO explanation_records (
+              id,
+              owner_type,
+              owner_id,
+              created_at,
+              headline,
+              body
+            ) VALUES (?, ?, ?, ?, ?, ?)
+          `,
+          explanationRecord.id,
+          explanationRecord.ownerType,
+          explanationRecord.ownerId,
+          explanationRecord.createdAt,
+          explanationRecord.headline,
+          explanationRecord.body,
+        );
+      }
     });
 
     return {
       revision: persistedRevision,
       updatedFutureSessions: normalizedSessions,
+      adaptationEvents,
+      explanationRecords,
     };
   }
 

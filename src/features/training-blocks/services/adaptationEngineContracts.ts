@@ -1,5 +1,7 @@
 import type {
+  AdaptationEvent,
   BlockRevision,
+  ExplanationRecord,
   GeneratedTrainingPlan,
   LoggedSetResult,
   PlannedSession,
@@ -92,6 +94,8 @@ export type AdaptationRuleResult = {
 export type PersistedAdaptationRevision = {
   revision: BlockRevision;
   updatedFutureSessions: readonly PlannedSession[];
+  adaptationEvents: readonly AdaptationEvent[];
+  explanationRecords: readonly ExplanationRecord[];
 };
 
 export interface AdaptationPlanReadStore {

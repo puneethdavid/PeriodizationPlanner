@@ -3,6 +3,7 @@ export * from "@/features/training-blocks/fixtures/trainingFixtures";
 export * from "@/features/training-blocks/repository/TrainingBlockRepository";
 export * from "@/features/training-blocks/schema/trainingBlockSchemas";
 export * from "@/features/training-blocks/services/adaptationEngineContracts";
+export * from "@/features/training-blocks/services/adaptationExplanationBuilder";
 export * from "@/features/training-blocks/services/adaptationHeuristics";
 export * from "@/features/training-blocks/services/adaptationRules";
 export * from "@/features/training-blocks/services/adaptationRevisionBuilder";
