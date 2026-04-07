@@ -15,6 +15,12 @@ export type AdaptationTrigger = {
   loggedSetResults: readonly LoggedSetResult[];
 };
 
+export type AdaptationWorkoutReview = {
+  session: PlannedSession;
+  workoutResult: WorkoutResult;
+  loggedSetResults: readonly LoggedSetResult[];
+};
+
 export type AdaptationPlanSnapshot = {
   plan: GeneratedTrainingPlan;
   completedSessions: readonly PlannedSession[];
