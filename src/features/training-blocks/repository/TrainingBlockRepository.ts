@@ -29,7 +29,13 @@ import {
   type TrainingBlock,
   type WorkoutResult,
 } from "@/features/training-blocks/schema/trainingBlockSchemas";
-import type { AdaptationPlanReadStore, AdaptationTrigger } from "@/features/training-blocks/services/adaptationEngineContracts";
+import type {
+  AdaptationPlanStore,
+  AdaptationWorkoutReview,
+  AdaptationTrigger,
+  PersistedAdaptationRevision,
+  ProposedPlanRevision,
+} from "@/features/training-blocks/services/adaptationEngineContracts";
 import {
   generateFixedTrainingBlock,
   type FixedBlockGeneratorOptions,
@@ -376,7 +382,7 @@ const mapLoggedSetResultRow = (row: LoggedSetResultRow): LoggedSetResult =>
 
 const makeSqlPlaceholders = (count: number): string => Array.from({ length: count }, () => "?").join(", ");
 
-export class TrainingBlockRepository extends BaseRepository implements AdaptationPlanReadStore {
+export class TrainingBlockRepository extends BaseRepository implements AdaptationPlanStore {
   constructor(context: RepositoryContext) {
     super(context);
   }
@@ -1131,10 +1137,10 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
           title,
           status
         FROM planned_sessions
-        WHERE block_revision_id = ?
+        WHERE block_id = ?
         ORDER BY session_index ASC
       `,
-      revision.id,
+      block.id,
     );
 
     const sessions = await Promise.all(
@@ -1202,6 +1208,7 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
   async getActivePlanSnapshotAsync(): Promise<{
     plan: GeneratedTrainingPlan;
     completedSessions: readonly PlannedSession[];
+    completedWorkoutReviews: readonly AdaptationWorkoutReview[];
     futureSessions: readonly PlannedSession[];
   } | null> {
     const plan = await this.getActiveTrainingBlockAsync();
@@ -1212,10 +1219,28 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
 
     const completedSessions = plan.sessions.filter((session) => session.status !== "planned");
     const futureSessions = plan.sessions.filter((session) => session.status === "planned");
+    const completedWorkoutReviews: readonly AdaptationWorkoutReview[] = (
+      await Promise.all(
+        completedSessions.map((session) => this.getWorkoutSessionReviewAsync(session.id)),
+      )
+    ).flatMap((review) => {
+      if (review === null || review.workoutResult === null) {
+        return [];
+      }
+
+      return [
+        {
+          session: review.session,
+          workoutResult: review.workoutResult,
+          loggedSetResults: review.loggedSetResults,
+        },
+      ];
+    });
 
     return {
       plan,
       completedSessions,
+      completedWorkoutReviews,
       futureSessions,
     };
   }
@@ -1404,6 +1429,125 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       completedSession: sessionReview.session,
       workoutResult: sessionReview.workoutResult,
       loggedSetResults: sessionReview.loggedSetResults,
+    };
+  }
+
+  async persistAdaptationRevisionAsync(
+    proposedRevision: ProposedPlanRevision,
+    updatedFutureSessions: readonly PlannedSession[],
+  ): Promise<PersistedAdaptationRevision> {
+    const createdAt = new Date().toISOString();
+    const persistedRevision = parseWithSchema(
+      blockRevisionSchema,
+      {
+        id: makeId("revision"),
+        blockId: proposedRevision.blockId,
+        revisionNumber: proposedRevision.nextRevisionNumber,
+        reason: proposedRevision.reason,
+        summary: proposedRevision.summary,
+        createdAt,
+      },
+      "training-blocks.persist-adaptation-revision",
+    );
+    const normalizedSessions = updatedFutureSessions.map((session) =>
+      parseWithSchema(
+        plannedSessionSchema,
+        {
+          ...session,
+          blockRevisionId: persistedRevision.id,
+        },
+        "training-blocks.persist-adaptation-session",
+      ),
+    );
+
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.runAsync(
+        `
+          INSERT INTO block_revisions (
+            id,
+            block_id,
+            revision_number,
+            reason,
+            summary,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        persistedRevision.id,
+        persistedRevision.blockId,
+        persistedRevision.revisionNumber,
+        persistedRevision.reason,
+        persistedRevision.summary,
+        persistedRevision.createdAt,
+      );
+
+      for (const session of normalizedSessions) {
+        await transaction.runAsync(
+          `
+            UPDATE planned_sessions
+            SET block_revision_id = ?,
+                scheduled_date = ?,
+                scheduled_weekday = ?,
+                title = ?,
+                session_type = ?,
+                status = ?
+            WHERE id = ?
+          `,
+          session.blockRevisionId,
+          session.scheduledDate,
+          session.scheduledWeekday,
+          session.title,
+          session.sessionType,
+          session.status,
+          session.id,
+        );
+
+        for (const exercise of session.plannedExercises) {
+          await transaction.runAsync(
+            `
+              UPDATE planned_exercises
+              SET lift_slug = ?,
+                  exercise_slug = ?,
+                  exercise_name = ?,
+                  exercise_order = ?,
+                  prescription_kind = ?
+              WHERE id = ?
+            `,
+            exercise.liftSlug,
+            exercise.exerciseSlug,
+            exercise.exerciseName,
+            exercise.exerciseOrder,
+            exercise.prescriptionKind,
+            exercise.id,
+          );
+
+          for (const plannedSet of exercise.plannedSets) {
+            await transaction.runAsync(
+              `
+                UPDATE planned_sets
+                SET target_reps = ?,
+                    target_load = ?,
+                    target_rpe = ?,
+                    rest_seconds = ?,
+                    tempo = ?,
+                    is_amrap = ?
+                WHERE id = ?
+              `,
+              plannedSet.targetReps,
+              plannedSet.targetLoad,
+              plannedSet.targetRpe,
+              plannedSet.restSeconds,
+              plannedSet.tempo,
+              plannedSet.isAmrap ? 1 : 0,
+              plannedSet.id,
+            );
+          }
+        }
+      }
+    });
+
+    return {
+      revision: persistedRevision,
+      updatedFutureSessions: normalizedSessions,
     };
   }
 

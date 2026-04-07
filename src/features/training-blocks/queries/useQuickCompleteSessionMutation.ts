@@ -2,12 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useAppDatabase } from "@/database/AppDatabaseProvider";
 import { TrainingBlockRepository } from "@/features/training-blocks/repository/TrainingBlockRepository";
+import { TrainingBlockAdaptationService } from "@/features/training-blocks/services/trainingBlockAdaptationService";
 import { queryKeys } from "@/query/queryKeys";
 
 export const useQuickCompleteSessionMutation = (sessionId: string | null) => {
   const { repositoryContext } = useAppDatabase();
   const queryClient = useQueryClient();
   const repository = new TrainingBlockRepository(repositoryContext);
+  const adaptationService = new TrainingBlockAdaptationService(repository);
 
   return useMutation({
     mutationFn: async () => {
@@ -16,6 +18,7 @@ export const useQuickCompleteSessionMutation = (sessionId: string | null) => {
       }
 
       await repository.completeSessionAsPlannedAsync(sessionId);
+      await adaptationService.adaptCompletedSessionAsync(sessionId);
     },
     onSuccess: async () => {
       if (sessionId === null) {

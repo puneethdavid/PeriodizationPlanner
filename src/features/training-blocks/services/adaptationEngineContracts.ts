@@ -24,6 +24,7 @@ export type AdaptationWorkoutReview = {
 export type AdaptationPlanSnapshot = {
   plan: GeneratedTrainingPlan;
   completedSessions: readonly PlannedSession[];
+  completedWorkoutReviews: readonly AdaptationWorkoutReview[];
   futureSessions: readonly PlannedSession[];
 };
 
