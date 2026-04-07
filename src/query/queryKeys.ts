@@ -11,6 +11,7 @@ export const queryKeys = {
     activePlan: () => ["training-blocks", "active-plan"] as const,
     archivedPlans: () => ["training-blocks", "archived-plans"] as const,
     adaptationSummaries: () => ["training-blocks", "adaptation-summaries"] as const,
+    lpReview: () => ["training-blocks", "lp-review"] as const,
     overview: () => ["training-blocks", "overview"] as const,
   },
   today: {

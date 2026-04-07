@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, EmptyState, ListRow, LoadingState, ScreenContainer } from "@/components/ui";
+import { useActiveLpPlanReviewQuery } from "@/features/training-blocks/queries/useActiveLpPlanReviewQuery";
 import { useAdaptationSummariesQuery } from "@/features/training-blocks/queries/useAdaptationSummariesQuery";
 import { useArchivedTrainingBlocksQuery } from "@/features/training-blocks/queries/useArchivedTrainingBlocksQuery";
 import { useBlockOverviewQuery } from "@/features/training-blocks/queries/useBlockOverviewQuery";
@@ -12,11 +13,13 @@ const BlockOverviewScreen = () => {
   const blockOverviewQuery = useBlockOverviewQuery();
   const archivedBlocksQuery = useArchivedTrainingBlocksQuery();
   const adaptationSummariesQuery = useAdaptationSummariesQuery();
+  const lpPlanReviewQuery = useActiveLpPlanReviewQuery();
 
   if (
     blockOverviewQuery.isLoading ||
     archivedBlocksQuery.isLoading ||
-    adaptationSummariesQuery.isLoading
+    adaptationSummariesQuery.isLoading ||
+    lpPlanReviewQuery.isLoading
   ) {
     return (
       <ScreenContainer
@@ -37,6 +40,7 @@ const BlockOverviewScreen = () => {
   const overview = blockOverviewQuery.data;
   const archivedBlocks = archivedBlocksQuery.data ?? [];
   const adaptationSummaries = adaptationSummariesQuery.data ?? [];
+  const lpPlanReview = lpPlanReviewQuery.data ?? null;
 
   return (
     <ScreenContainer
@@ -82,6 +86,69 @@ const BlockOverviewScreen = () => {
             </View>
           </Card>
 
+          {lpPlanReview === null ? null : (
+            <Card>
+              <View style={styles.weekHeader}>
+                <Text style={styles.weekTitle}>LP program state</Text>
+                <Text style={styles.weekMeta}>{lpPlanReview.programLevel}</Text>
+              </View>
+              <Text style={styles.blockMeta}>
+                Current phase: {lpPlanReview.currentPhase}.{" "}
+                {lpPlanReview.nextCheckpointType === null
+                  ? "No checkpoint is currently queued."
+                  : `Next checkpoint: ${lpPlanReview.nextCheckpointType}.`}
+              </Text>
+              <Text style={styles.blockMeta}>
+                {lpPlanReview.activeDeloadUntilSessionIndex === null
+                  ? "No reactive deload is active."
+                  : `Reactive deload active through session ${lpPlanReview.activeDeloadUntilSessionIndex}.`}
+              </Text>
+            </Card>
+          )}
+
+          {lpPlanReview === null ? null : (
+            <Card>
+              <View style={styles.weekHeader}>
+                <Text style={styles.weekTitle}>Goal path</Text>
+                <Text style={styles.weekMeta}>{lpPlanReview.goalProgress.length}</Text>
+              </View>
+              {lpPlanReview.goalProgress.length === 0 ? (
+                <Text style={styles.blockMeta}>
+                  No explicit target lift goals are saved for this program yet.
+                </Text>
+              ) : (
+                lpPlanReview.goalProgress.map((goal) => (
+                  <ListRow
+                    key={goal.id}
+                    title={`${goal.liftSlug} -> ${goal.targetWeight} ${goal.targetTestType}`}
+                    description={
+                      goal.actualCheckpointLoad === null
+                        ? `Awaiting checkpoint comparison. Remaining delta: ${goal.remainingDelta.toFixed(2)}.`
+                        : `Expected ${goal.expectedCheckpointLoad?.toFixed(2) ?? "-"}, actual ${goal.actualCheckpointLoad.toFixed(2)}, remaining delta ${goal.remainingDelta.toFixed(2)}.`
+                    }
+                    trailing={goal.status}
+                  />
+                ))
+              )}
+            </Card>
+          )}
+
+          {lpPlanReview !== null && lpPlanReview.mesocycleExtensions.length > 0 ? (
+            <Card>
+              <View style={styles.weekHeader}>
+                <Text style={styles.weekTitle}>Added mesocycles</Text>
+                <Text style={styles.weekMeta}>{lpPlanReview.mesocycleExtensions.length}</Text>
+              </View>
+              {lpPlanReview.mesocycleExtensions.map((extension) => (
+                <ListRow
+                  key={extension.id}
+                  title={`${extension.addedPhase} +${extension.addedWeeks} weeks`}
+                  description={`${extension.createdAt.slice(0, 10)}. ${extension.reason}`}
+                />
+              ))}
+            </Card>
+          ) : null}
+
           <Card>
             <View style={styles.weekHeader}>
               <Text style={styles.weekTitle}>Recent adaptations</Text>
@@ -89,8 +156,8 @@ const BlockOverviewScreen = () => {
             </View>
             {adaptationSummaries.length === 0 ? (
               <Text style={styles.blockMeta}>
-                No workout feedback has changed the plan yet. When adaptation runs after a logged
-                session, the latest revision reasons will appear here.
+                No completed session has changed the LP plan yet. Checkpoint recalibrations,
+                reactive deloads, and added mesocycles will appear here once they happen.
               </Text>
             ) : (
               adaptationSummaries.map((adaptationSummary) => (

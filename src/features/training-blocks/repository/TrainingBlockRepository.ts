@@ -261,6 +261,16 @@ type LpGoalProgressRow = {
   updated_at: string;
 };
 
+type LpMesocycleExtensionRow = {
+  id: string;
+  block_id: string;
+  triggered_by_checkpoint_result_id: string | null;
+  added_phase: string;
+  added_weeks: number;
+  reason: string;
+  created_at: string;
+};
+
 export type ArchivedTrainingBlockSummary = {
   blockId: string;
   blockName: string;
@@ -293,6 +303,22 @@ export type AdaptationSummary = {
   body: string;
   revisionHeadline: string | null;
   revisionBody: string | null;
+};
+
+export type ActiveLpPlanReview = {
+  programLevel: LpProgramState["programLevel"];
+  currentPhase: LpProgramState["currentPhase"];
+  nextCheckpointType: LpProgramState["nextCheckpointType"];
+  activeDeloadUntilSessionIndex: number | null;
+  goalProgress: readonly LpGoalProgress[];
+  recentCheckpoints: readonly LpCheckpointResult[];
+  mesocycleExtensions: readonly {
+    id: string;
+    addedPhase: string;
+    addedWeeks: number;
+    reason: string;
+    createdAt: string;
+  }[];
 };
 
 const makeId = (prefix: string): string => {
@@ -2667,5 +2693,55 @@ export class TrainingBlockRepository extends BaseRepository implements Adaptatio
       revisionHeadline: row.revision_headline,
       revisionBody: row.revision_body,
     }));
+  }
+
+  async getActiveLpPlanReviewAsync(): Promise<ActiveLpPlanReview | null> {
+    const activeBlock = await this.getActiveTrainingBlockAsync();
+
+    if (activeBlock === null) {
+      return null;
+    }
+
+    const [programState, goalProgress, recentCheckpoints, mesocycleExtensions] = await Promise.all([
+      this.getLpProgramStateAsync(activeBlock.block.id),
+      this.getLpGoalProgressAsync(activeBlock.block.id),
+      this.getLpCheckpointResultsAsync(activeBlock.block.id),
+      this.database.getAllAsync<LpMesocycleExtensionRow>(
+        `
+          SELECT
+            id,
+            block_id,
+            triggered_by_checkpoint_result_id,
+            added_phase,
+            added_weeks,
+            reason,
+            created_at
+          FROM lp_mesocycle_extensions
+          WHERE block_id = ?
+          ORDER BY created_at DESC
+        `,
+        activeBlock.block.id,
+      ),
+    ]);
+
+    if (programState === null) {
+      return null;
+    }
+
+    return {
+      programLevel: programState.programLevel,
+      currentPhase: programState.currentPhase,
+      nextCheckpointType: programState.nextCheckpointType,
+      activeDeloadUntilSessionIndex: programState.activeDeloadUntilSessionIndex,
+      goalProgress,
+      recentCheckpoints: recentCheckpoints.slice(0, 6),
+      mesocycleExtensions: mesocycleExtensions.map((extension) => ({
+        id: extension.id,
+        addedPhase: extension.added_phase,
+        addedWeeks: extension.added_weeks,
+        reason: extension.reason,
+        createdAt: extension.created_at,
+      })),
+    };
   }
 }

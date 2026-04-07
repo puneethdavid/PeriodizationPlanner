@@ -48,6 +48,9 @@ export const useQuickCompleteSessionMutation = (sessionId: string | null) => {
           queryKey: queryKeys.trainingBlocks.adaptationSummaries(),
         }),
         queryClient.invalidateQueries({
+          queryKey: queryKeys.trainingBlocks.lpReview(),
+        }),
+        queryClient.invalidateQueries({
           queryKey: queryKeys.trainingBlocks.archivedPlans(),
         }),
       ]);

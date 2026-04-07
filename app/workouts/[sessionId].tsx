@@ -83,6 +83,8 @@ const WorkoutDetailScreen = () => {
   const isBenchmarkSession = plannedSession.sessionType === "benchmark";
   const isFinalTestSession = plannedSession.sessionType === "final-test";
   const isEvaluationSession = isBenchmarkSession || isFinalTestSession;
+  const phaseLabel = plannedSession.lpMetadata?.phase ?? null;
+  const checkpointLabel = plannedSession.lpMetadata?.checkpointType ?? null;
   const scheduledWeekdayLabel = formatTrainingWeekday(plannedSession.scheduledWeekday);
   const loggedSetResultByPlannedSetId = new Map(
     workoutReview.loggedSetResults
@@ -184,6 +186,18 @@ const WorkoutDetailScreen = () => {
             <Text style={styles.badgeLabel}>Exercises</Text>
             <Text style={styles.badgeValue}>{plannedSession.plannedExercises.length}</Text>
           </View>
+          {phaseLabel === null ? null : (
+            <View style={styles.badge}>
+              <Text style={styles.badgeLabel}>Phase</Text>
+              <Text style={styles.badgeValue}>{phaseLabel}</Text>
+            </View>
+          )}
+          {checkpointLabel === null ? null : (
+            <View style={styles.badge}>
+              <Text style={styles.badgeLabel}>Checkpoint</Text>
+              <Text style={styles.badgeValue}>{checkpointLabel}</Text>
+            </View>
+          )}
           {scheduledWeekdayLabel !== null ? (
             <View style={styles.badge}>
               <Text style={styles.badgeLabel}>Weekday</Text>
@@ -201,6 +215,12 @@ const WorkoutDetailScreen = () => {
             ? " is archived after a later regeneration."
             : " is the current active block."}
         </Text>
+        {phaseLabel === null ? null : (
+          <Text style={styles.testSessionDescription}>
+            This session belongs to the {phaseLabel} phase
+            {checkpointLabel === null ? "." : ` and is scheduled as a ${checkpointLabel} checkpoint.`}
+          </Text>
+        )}
         {workoutResult !== null ? (
           <>
             <Text style={styles.testSessionTitle}>
